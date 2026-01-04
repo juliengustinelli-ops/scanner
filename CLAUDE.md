@@ -20,3 +20,7 @@ Next.js 16 application with TypeScript, Tailwind CSS v4, and ESLint.
 - **Language**: TypeScript
 - **Source**: `src/` directory structure
 - **Import alias**: `@/*` maps to `src/*`
+
+## Preferences
+
+- **Always use Tailwind CSS** for styling. Do not use other CSS solutions or inline styles.
