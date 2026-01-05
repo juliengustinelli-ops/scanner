@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design 2 - Traditional Church</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Georgia', serif; background: #f5f3ef; color: #2c2c2c; }
+
+        .header { background: linear-gradient(135deg, #722f37 0%, #4a1c24 100%); padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; }
+        .logo { color: #d4af37; font-size: 26px; font-weight: normal; display: flex; align-items: center; gap: 12px; }
+        .logo svg { width: 32px; height: 32px; fill: #d4af37; }
+        .nav { display: flex; gap: 30px; }
+        .nav a { text-decoration: none; color: #e8d5b7; font-size: 14px; }
+        .nav a:hover { color: #d4af37; }
+
+        .banner { background: #722f37; color: white; text-align: center; padding: 40px; border-bottom: 4px solid #d4af37; }
+        .banner h1 { font-size: 28px; font-weight: normal; margin-bottom: 8px; }
+        .banner p { color: #e8d5b7; font-style: italic; }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 40px; }
+
+        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 40px; }
+        .stat-card { background: white; padding: 28px; border-radius: 4px; text-align: center; border-top: 4px solid #d4af37; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .stat-icon { font-size: 32px; margin-bottom: 12px; }
+        .stat-value { font-size: 36px; color: #722f37; margin-bottom: 4px; }
+        .stat-label { font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+
+        .section { background: white; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 24px; }
+        .section-header { padding: 20px 24px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .section-title { font-size: 18px; color: #722f37; }
+        .btn { background: #722f37; color: #d4af37; border: 2px solid #d4af37; padding: 10px 24px; border-radius: 4px; font-family: Georgia, serif; cursor: pointer; }
+        .btn:hover { background: #4a1c24; }
+
+        .entry { display: grid; grid-template-columns: 2fr 2fr 1fr 1fr; padding: 20px 24px; border-bottom: 1px solid #f0f0f0; align-items: center; }
+        .entry:last-child { border-bottom: none; }
+        .entry:hover { background: #faf9f7; }
+        .entry-name { font-weight: bold; color: #333; }
+        .entry-address { color: #666; font-size: 14px; }
+        .entry-amount { font-size: 18px; color: #722f37; font-weight: bold; }
+        .entry-date { color: #888; font-size: 13px; font-style: italic; }
+
+        .footer { text-align: center; padding: 30px; color: #888; font-size: 13px; font-style: italic; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">
+            <svg viewBox="0 0 24 24"><path d="M11 2v4H9v2h2v2H9v2h2v8H2v-6h4v-2H2v-2h9V8H9V6h2V2h2zm2 0v4h2v2h-2v2h2v2h-2v8h9v-6h-4v-2h4v-2h-9V8h2V6h-2V2h-2z"/></svg>
+            Sacred Heart Parish
+        </div>
+        <nav class="nav">
+            <a href="#">Home</a>
+            <a href="#">Collections</a>
+            <a href="#">Parishioners</a>
+            <a href="#">Reports</a>
+        </nav>
+    </header>
+
+    <div class="banner">
+        <h1>Tithe Collection Management</h1>
+        <p>"Each of you should give what you have decided in your heart to give" — 2 Corinthians 9:7</p>
+    </div>
+
+    <div class="container">
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-icon">✝️</div>
+                <div class="stat-value">$34,180</div>
+                <div class="stat-label">Monthly Collection</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📨</div>
+                <div class="stat-value">847</div>
+                <div class="stat-label">Envelopes Processed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">👥</div>
+                <div class="stat-value">312</div>
+                <div class="stat-label">Contributing Families</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h2 class="section-title">Recent Contributions</h2>
+                <button class="btn">+ New Entry</button>
+            </div>
+            <div class="entry">
+                <div>
+                    <div class="entry-name">John & Mary Smith</div>
+                    <div class="entry-address">123 Oak Street, Springfield</div>
+                </div>
+                <div class="entry-address">Envelope #1042</div>
+                <div class="entry-amount">$150.00</div>
+                <div class="entry-date">January 4, 2026</div>
+            </div>
+            <div class="entry">
+                <div>
+                    <div class="entry-name">Robert Johnson</div>
+                    <div class="entry-address">456 Maple Ave, Springfield</div>
+                </div>
+                <div class="entry-address">Envelope #1043</div>
+                <div class="entry-amount">$75.00</div>
+                <div class="entry-date">January 4, 2026</div>
+            </div>
+            <div class="entry">
+                <div>
+                    <div class="entry-name">Patricia Williams</div>
+                    <div class="entry-address">789 Pine Road, Springfield</div>
+                </div>
+                <div class="entry-address">Envelope #1044</div>
+                <div class="entry-amount">$200.00</div>
+                <div class="entry-date">January 4, 2026</div>
+            </div>
+            <div class="entry">
+                <div>
+                    <div class="entry-name">Michael & Susan Brown</div>
+                    <div class="entry-address">321 Elm Court, Springfield</div>
+                </div>
+                <div class="entry-address">Envelope #1045</div>
+                <div class="entry-amount">$50.00</div>
+                <div class="entry-date">January 4, 2026</div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        Sacred Heart Parish • Serving our community since 1923
+    </footer>
+</body>
+</html>

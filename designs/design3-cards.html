@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design 3 - Modern Cards</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', -apple-system, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+
+        .sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 240px; background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 24px; }
+        .logo { color: white; font-size: 22px; font-weight: 700; margin-bottom: 40px; }
+        .logo span { opacity: 0.7; font-weight: 400; }
+        .menu-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: rgba(255,255,255,0.7); text-decoration: none; border-radius: 8px; margin-bottom: 4px; font-size: 14px; }
+        .menu-item:hover, .menu-item.active { background: rgba(255,255,255,0.15); color: white; }
+        .menu-icon { width: 20px; text-align: center; }
+
+        .main { margin-left: 240px; padding: 32px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
+        .page-title { color: white; font-size: 28px; font-weight: 600; }
+        .header-actions { display: flex; gap: 12px; }
+        .btn { background: white; color: #667eea; border: none; padding: 12px 24px; border-radius: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        .btn-outline { background: transparent; border: 2px solid rgba(255,255,255,0.5); color: white; }
+
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 32px; }
+        .stat-card { background: rgba(255,255,255,0.95); padding: 24px; border-radius: 16px; }
+        .stat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .stat-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+        .stat-icon.purple { background: #f3e8ff; }
+        .stat-icon.green { background: #dcfce7; }
+        .stat-icon.blue { background: #dbeafe; }
+        .stat-icon.orange { background: #ffedd5; }
+        .stat-value { font-size: 28px; font-weight: 700; color: #1f2937; }
+        .stat-label { font-size: 13px; color: #6b7280; margin-top: 4px; }
+        .stat-change { font-size: 12px; color: #22c55e; }
+
+        .section-title { color: white; font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+        .cards-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        .donation-card { background: white; border-radius: 16px; padding: 24px; transition: transform 0.2s; }
+        .donation-card:hover { transform: translateY(-4px); }
+        .card-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px; }
+        .donor-avatar { width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #667eea, #764ba2); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 16px; }
+        .card-amount { font-size: 24px; font-weight: 700; color: #667eea; }
+        .donor-name { font-weight: 600; color: #1f2937; font-size: 16px; margin-bottom: 4px; }
+        .donor-address { color: #6b7280; font-size: 13px; line-height: 1.5; }
+        .card-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding-top: 16px; border-top: 1px solid #f3f4f6; }
+        .card-date { color: #9ca3af; font-size: 12px; }
+        .card-badge { background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <aside class="sidebar">
+        <div class="logo">Parish<span>Collect</span></div>
+        <nav>
+            <a href="#" class="menu-item active"><span class="menu-icon">📊</span> Dashboard</a>
+            <a href="#" class="menu-item"><span class="menu-icon">📨</span> Envelopes</a>
+            <a href="#" class="menu-item"><span class="menu-icon">👥</span> Parishioners</a>
+            <a href="#" class="menu-item"><span class="menu-icon">📱</span> Scanner App</a>
+            <a href="#" class="menu-item"><span class="menu-icon">📈</span> Reports</a>
+            <a href="#" class="menu-item"><span class="menu-icon">⚙️</span> Settings</a>
+        </nav>
+    </aside>
+
+    <main class="main">
+        <header class="header">
+            <h1 class="page-title">Collection Dashboard</h1>
+            <div class="header-actions">
+                <button class="btn btn-outline">Export</button>
+                <button class="btn">+ New Entry</button>
+            </div>
+        </header>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-icon purple">💰</div>
+                    <span class="stat-change">↑ 12%</span>
+                </div>
+                <div class="stat-value">$2,450</div>
+                <div class="stat-label">Today's Total</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-icon green">📨</div>
+                    <span class="stat-change">↑ 8%</span>
+                </div>
+                <div class="stat-value">47</div>
+                <div class="stat-label">Envelopes Scanned</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-icon blue">📅</div>
+                </div>
+                <div class="stat-value">$8,320</div>
+                <div class="stat-label">This Week</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-icon orange">👥</div>
+                </div>
+                <div class="stat-value">312</div>
+                <div class="stat-label">Active Donors</div>
+            </div>
+        </div>
+
+        <h2 class="section-title">Recent Donations</h2>
+        <div class="cards-grid">
+            <div class="donation-card">
+                <div class="card-header">
+                    <div class="donor-avatar">JS</div>
+                    <div class="card-amount">$150</div>
+                </div>
+                <div class="donor-name">John & Mary Smith</div>
+                <div class="donor-address">123 Oak Street<br>Springfield, IL 62701</div>
+                <div class="card-footer">
+                    <span class="card-date">Jan 4, 2026 • 10:32 AM</span>
+                    <span class="card-badge">Recorded</span>
+                </div>
+            </div>
+            <div class="donation-card">
+                <div class="card-header">
+                    <div class="donor-avatar">RJ</div>
+                    <div class="card-amount">$75</div>
+                </div>
+                <div class="donor-name">Robert Johnson</div>
+                <div class="donor-address">456 Maple Avenue<br>Springfield, IL 62702</div>
+                <div class="card-footer">
+                    <span class="card-date">Jan 4, 2026 • 10:28 AM</span>
+                    <span class="card-badge">Recorded</span>
+                </div>
+            </div>
+            <div class="donation-card">
+                <div class="card-header">
+                    <div class="donor-avatar">PW</div>
+                    <div class="card-amount">$200</div>
+                </div>
+                <div class="donor-name">Patricia Williams</div>
+                <div class="donor-address">789 Pine Road<br>Springfield, IL 62703</div>
+                <div class="card-footer">
+                    <span class="card-date">Jan 4, 2026 • 10:15 AM</span>
+                    <span class="card-badge">Recorded</span>
+                </div>
+            </div>
+            <div class="donation-card">
+                <div class="card-header">
+                    <div class="donor-avatar">MB</div>
+                    <div class="card-amount">$50</div>
+                </div>
+                <div class="donor-name">Michael Brown</div>
+                <div class="donor-address">321 Elm Court<br>Springfield, IL 62704</div>
+                <div class="card-footer">
+                    <span class="card-date">Jan 4, 2026 • 10:08 AM</span>
+                    <span class="card-badge">Recorded</span>
+                </div>
+            </div>
+            <div class="donation-card">
+                <div class="card-header">
+                    <div class="donor-avatar">ED</div>
+                    <div class="card-amount">$125</div>
+                </div>
+                <div class="donor-name">Elizabeth Davis</div>
+                <div class="donor-address">654 Cedar Lane<br>Springfield, IL 62705</div>
+                <div class="card-footer">
+                    <span class="card-date">Jan 4, 2026 • 9:55 AM</span>
+                    <span class="card-badge">Recorded</span>
+                </div>
+            </div>
+            <div class="donation-card">
+                <div class="card-header">
+                    <div class="donor-avatar">TM</div>
+                    <div class="card-amount">$100</div>
+                </div>
+                <div class="donor-name">Thomas Miller</div>
+                <div class="donor-address">987 Birch Street<br>Springfield, IL 62706</div>
+                <div class="card-footer">
+                    <span class="card-date">Jan 4, 2026 • 9:42 AM</span>
+                    <span class="card-badge">Recorded</span>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

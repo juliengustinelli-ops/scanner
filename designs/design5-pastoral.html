@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design 5 - Soft Pastoral</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Nunito', -apple-system, sans-serif; background: #f0f5f1; color: #2d3a2e; }
+
+        .header { background: white; padding: 16px 40px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .logo { display: flex; align-items: center; gap: 12px; }
+        .logo-mark { width: 44px; height: 44px; background: linear-gradient(135deg, #4ade80, #22c55e); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px; }
+        .logo-text { font-size: 22px; font-weight: 700; color: #166534; }
+        .logo-text span { color: #86efac; font-weight: 400; }
+        .nav { display: flex; gap: 32px; }
+        .nav a { text-decoration: none; color: #6b7280; font-size: 15px; font-weight: 500; }
+        .nav a:hover { color: #166534; }
+        .nav a.active { color: #166534; }
+
+        .hero { background: linear-gradient(135deg, #166534 0%, #15803d 50%, #22c55e 100%); color: white; padding: 48px 40px; }
+        .hero-content { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
+        .hero h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+        .hero p { opacity: 0.9; font-size: 16px; }
+        .hero-stats { display: flex; gap: 48px; }
+        .hero-stat { text-align: center; }
+        .hero-stat-value { font-size: 36px; font-weight: 700; }
+        .hero-stat-label { font-size: 13px; opacity: 0.8; }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 40px; }
+
+        .action-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .search-box { display: flex; align-items: center; gap: 8px; background: white; padding: 12px 16px; border-radius: 12px; width: 300px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .search-box input { border: none; outline: none; font-size: 14px; width: 100%; }
+        .btn { padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; display: flex; align-items: center; gap: 8px; }
+        .btn-primary { background: #22c55e; color: white; }
+        .btn-primary:hover { background: #16a34a; }
+        .btn-outline { background: white; color: #166534; border: 2px solid #bbf7d0; }
+
+        .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+        .collection-card { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; gap: 20px; transition: transform 0.2s, box-shadow 0.2s; }
+        .collection-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
+        .card-avatar { width: 56px; height: 56px; border-radius: 14px; background: linear-gradient(135deg, #bbf7d0, #86efac); display: flex; align-items: center; justify-content: center; color: #166534; font-weight: 700; font-size: 18px; flex-shrink: 0; }
+        .card-body { flex: 1; }
+        .card-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px; }
+        .card-name { font-size: 17px; font-weight: 700; color: #1f2937; }
+        .card-amount { font-size: 20px; font-weight: 700; color: #16a34a; }
+        .card-address { color: #6b7280; font-size: 14px; line-height: 1.6; margin-bottom: 12px; }
+        .card-footer { display: flex; gap: 16px; font-size: 13px; color: #9ca3af; }
+        .card-footer span { display: flex; align-items: center; gap: 4px; }
+
+        .sidebar-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 320px; background: white; padding: 32px; box-shadow: -4px 0 24px rgba(0,0,0,0.05); }
+        .panel-title { font-size: 18px; font-weight: 700; color: #166534; margin-bottom: 24px; }
+        .recent-item { display: flex; gap: 12px; padding: 16px 0; border-bottom: 1px solid #f0f5f1; }
+        .recent-avatar { width: 40px; height: 40px; border-radius: 10px; background: #f0fdf4; display: flex; align-items: center; justify-content: center; color: #16a34a; font-weight: 600; font-size: 14px; }
+        .recent-info { flex: 1; }
+        .recent-name { font-weight: 600; font-size: 14px; color: #1f2937; }
+        .recent-time { font-size: 12px; color: #9ca3af; }
+        .recent-amount { font-weight: 700; color: #16a34a; }
+
+        .summary-card { background: #f0fdf4; border-radius: 12px; padding: 20px; margin-top: 24px; }
+        .summary-row { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 14px; }
+        .summary-row:last-child { margin-bottom: 0; padding-top: 12px; border-top: 1px dashed #bbf7d0; font-weight: 700; }
+        .summary-label { color: #6b7280; }
+        .summary-value { color: #166534; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">
+            <div class="logo-mark">✝</div>
+            <div class="logo-text">Grace<span>Giving</span></div>
+        </div>
+        <nav class="nav">
+            <a href="#" class="active">Dashboard</a>
+            <a href="#">Collections</a>
+            <a href="#">Parishioners</a>
+            <a href="#">Reports</a>
+            <a href="#">Settings</a>
+        </nav>
+    </header>
+
+    <div class="hero">
+        <div class="hero-content">
+            <div>
+                <h1>Welcome back, Father Michael</h1>
+                <p>Sunday Mass Collection - January 4, 2026</p>
+            </div>
+            <div class="hero-stats">
+                <div class="hero-stat">
+                    <div class="hero-stat-value">$2,450</div>
+                    <div class="hero-stat-label">Today's Total</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="hero-stat-value">47</div>
+                    <div class="hero-stat-label">Envelopes</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="hero-stat-value">$52</div>
+                    <div class="hero-stat-label">Average</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container" style="margin-right: 360px;">
+        <div class="action-bar">
+            <div class="search-box">
+                <span>🔍</span>
+                <input type="text" placeholder="Search by name or envelope number...">
+            </div>
+            <div style="display: flex; gap: 12px;">
+                <button class="btn btn-outline">📊 Export</button>
+                <button class="btn btn-primary">+ Add Entry</button>
+            </div>
+        </div>
+
+        <div class="cards">
+            <div class="collection-card">
+                <div class="card-avatar">JS</div>
+                <div class="card-body">
+                    <div class="card-header">
+                        <div class="card-name">John & Mary Smith</div>
+                        <div class="card-amount">$150.00</div>
+                    </div>
+                    <div class="card-address">123 Oak Street, Springfield, IL 62701</div>
+                    <div class="card-footer">
+                        <span>📨 ENV-1042</span>
+                        <span>🕐 10:32 AM</span>
+                    </div>
+                </div>
+            </div>
+            <div class="collection-card">
+                <div class="card-avatar">RJ</div>
+                <div class="card-body">
+                    <div class="card-header">
+                        <div class="card-name">Robert Johnson</div>
+                        <div class="card-amount">$75.00</div>
+                    </div>
+                    <div class="card-address">456 Maple Avenue, Springfield, IL 62702</div>
+                    <div class="card-footer">
+                        <span>📨 ENV-1043</span>
+                        <span>🕐 10:28 AM</span>
+                    </div>
+                </div>
+            </div>
+            <div class="collection-card">
+                <div class="card-avatar">PW</div>
+                <div class="card-body">
+                    <div class="card-header">
+                        <div class="card-name">Patricia Williams</div>
+                        <div class="card-amount">$200.00</div>
+                    </div>
+                    <div class="card-address">789 Pine Road, Springfield, IL 62703</div>
+                    <div class="card-footer">
+                        <span>📨 ENV-1044</span>
+                        <span>🕐 10:15 AM</span>
+                    </div>
+                </div>
+            </div>
+            <div class="collection-card">
+                <div class="card-avatar">MB</div>
+                <div class="card-body">
+                    <div class="card-header">
+                        <div class="card-name">Michael & Susan Brown</div>
+                        <div class="card-amount">$50.00</div>
+                    </div>
+                    <div class="card-address">321 Elm Court, Springfield, IL 62704</div>
+                    <div class="card-footer">
+                        <span>📨 ENV-1045</span>
+                        <span>🕐 10:08 AM</span>
+                    </div>
+                </div>
+            </div>
+            <div class="collection-card">
+                <div class="card-avatar">ED</div>
+                <div class="card-body">
+                    <div class="card-header">
+                        <div class="card-name">Elizabeth Davis</div>
+                        <div class="card-amount">$125.00</div>
+                    </div>
+                    <div class="card-address">654 Cedar Lane, Springfield, IL 62705</div>
+                    <div class="card-footer">
+                        <span>📨 ENV-1046</span>
+                        <span>🕐 9:55 AM</span>
+                    </div>
+                </div>
+            </div>
+            <div class="collection-card">
+                <div class="card-avatar">TM</div>
+                <div class="card-body">
+                    <div class="card-header">
+                        <div class="card-name">Thomas Miller</div>
+                        <div class="card-amount">$100.00</div>
+                    </div>
+                    <div class="card-address">987 Birch Street, Springfield, IL 62706</div>
+                    <div class="card-footer">
+                        <span>📨 ENV-1047</span>
+                        <span>🕐 9:42 AM</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <aside class="sidebar-panel">
+        <h2 class="panel-title">Live Scanner Feed</h2>
+        <div class="recent-item">
+            <div class="recent-avatar">JS</div>
+            <div class="recent-info">
+                <div class="recent-name">John & Mary Smith</div>
+                <div class="recent-time">Just now</div>
+            </div>
+            <div class="recent-amount">$150</div>
+        </div>
+        <div class="recent-item">
+            <div class="recent-avatar">RJ</div>
+            <div class="recent-info">
+                <div class="recent-name">Robert Johnson</div>
+                <div class="recent-time">2 min ago</div>
+            </div>
+            <div class="recent-amount">$75</div>
+        </div>
+        <div class="recent-item">
+            <div class="recent-avatar">PW</div>
+            <div class="recent-info">
+                <div class="recent-name">Patricia Williams</div>
+                <div class="recent-time">5 min ago</div>
+            </div>
+            <div class="recent-amount">$200</div>
+        </div>
+
+        <div class="summary-card">
+            <div class="summary-row">
+                <span class="summary-label">Cash Envelopes</span>
+                <span class="summary-value">$1,850.00</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">Check Envelopes</span>
+                <span class="summary-value">$600.00</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">Total Collected</span>
+                <span class="summary-value" style="font-size: 18px; color: #16a34a;">$2,450.00</span>
+            </div>
+        </div>
+    </aside>
+</body>
+</html>

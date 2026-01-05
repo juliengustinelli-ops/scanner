@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design 1 - Minimal Clean</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fafafa; color: #333; }
+
+        .header { background: white; border-bottom: 1px solid #eee; padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; }
+        .logo { font-size: 24px; font-weight: 600; color: #1a1a1a; }
+        .logo span { color: #6366f1; }
+        .nav { display: flex; gap: 30px; }
+        .nav a { text-decoration: none; color: #666; font-size: 14px; }
+        .nav a:hover { color: #333; }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 40px; }
+
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 40px; }
+        .stat-card { background: white; padding: 24px; border-radius: 8px; border: 1px solid #eee; }
+        .stat-label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-value { font-size: 32px; font-weight: 600; margin-top: 8px; }
+        .stat-value.green { color: #22c55e; }
+
+        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .section-title { font-size: 18px; font-weight: 600; }
+        .btn { background: #6366f1; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+        .btn:hover { background: #4f46e5; }
+
+        .table-container { background: white; border-radius: 8px; border: 1px solid #eee; overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 16px 20px; background: #fafafa; font-size: 12px; text-transform: uppercase; color: #888; letter-spacing: 0.5px; border-bottom: 1px solid #eee; }
+        td { padding: 16px 20px; border-bottom: 1px solid #f5f5f5; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover { background: #fafafa; }
+        .amount { font-weight: 600; color: #22c55e; }
+        .date { color: #888; font-size: 13px; }
+
+        .badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; background: #e0f2fe; color: #0369a1; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">Tithe<span>Track</span></div>
+        <nav class="nav">
+            <a href="#">Dashboard</a>
+            <a href="#">Collections</a>
+            <a href="#">Reports</a>
+            <a href="#">Settings</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-label">Today's Collections</div>
+                <div class="stat-value green">$2,450</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">This Week</div>
+                <div class="stat-value">$8,320</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">This Month</div>
+                <div class="stat-value">$34,180</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Envelopes</div>
+                <div class="stat-value">847</div>
+            </div>
+        </div>
+
+        <div class="section-header">
+            <h2 class="section-title">Recent Collections</h2>
+            <button class="btn">+ Add Entry</button>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Address</th>
+                        <th>Amount</th>
+                        <th>Date</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>John & Mary Smith</strong></td>
+                        <td>123 Oak Street, Springfield</td>
+                        <td class="amount">$150.00</td>
+                        <td class="date">Jan 4, 2026</td>
+                        <td><span class="badge">Recorded</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Robert Johnson</strong></td>
+                        <td>456 Maple Ave, Springfield</td>
+                        <td class="amount">$75.00</td>
+                        <td class="date">Jan 4, 2026</td>
+                        <td><span class="badge">Recorded</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Patricia Williams</strong></td>
+                        <td>789 Pine Road, Springfield</td>
+                        <td class="amount">$200.00</td>
+                        <td class="date">Jan 4, 2026</td>
+                        <td><span class="badge">Recorded</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Michael Brown</strong></td>
+                        <td>321 Elm Court, Springfield</td>
+                        <td class="amount">$50.00</td>
+                        <td class="date">Jan 4, 2026</td>
+                        <td><span class="badge">Recorded</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Elizabeth Davis</strong></td>
+                        <td>654 Cedar Lane, Springfield</td>
+                        <td class="amount">$125.00</td>
+                        <td class="date">Jan 4, 2026</td>
+                        <td><span class="badge">Recorded</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
