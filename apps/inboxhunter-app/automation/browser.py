@@ -300,6 +300,7 @@ class BrowserAutomation:
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "locale": "en-US",
             "timezone_id": "America/New_York",
+            "ignore_https_errors": True,  # Ignore SSL certificate errors
         }
         
         self.context = await self.browser.new_context(**context_options)
@@ -353,36 +354,58 @@ class BrowserAutomation:
     async def navigate(self, url: str, wait_until: str = "domcontentloaded") -> bool:
         """
         Navigate to a URL.
-        
+
         Args:
             url: URL to navigate to
             wait_until: Wait condition
-            
+
         Returns:
             True if successful
         """
+        self.last_error = None  # Reset error
         try:
             slog.detail(f"Navigating to: {url}")
-            
+
             await asyncio.sleep(random.uniform(0.5, 1.5))
-            
+
             response = await self.page.goto(
                 url,
                 wait_until=wait_until,
                 timeout=45000
             )
-            
+
             await asyncio.sleep(2)
-            
+
             if response and response.ok:
                 slog.detail_success(f"✅ Page loaded: {url}")
                 return True
             else:
                 slog.detail_warning(f"Page status: {response.status if response else 'No response'}")
                 return True  # Continue anyway
-                
+
         except Exception as e:
-            slog.detail_warning(f"Navigation error: {e}")
+            error_str = str(e)
+            # Parse specific error types for better messages
+            if "ERR_CERT" in error_str:
+                self.last_error = "SSL certificate error"
+            elif "ERR_NAME_NOT_RESOLVED" in error_str:
+                self.last_error = "Domain not found"
+            elif "ERR_CONNECTION_REFUSED" in error_str:
+                self.last_error = "Connection refused"
+            elif "ERR_CONNECTION_TIMED_OUT" in error_str or "Timeout" in error_str:
+                self.last_error = "Connection timed out"
+            elif "ERR_ABORTED" in error_str:
+                self.last_error = "Page load aborted"
+            elif "Target page, context or browser has been closed" in error_str:
+                self.last_error = "Browser was closed"
+            elif "ERR_TOO_MANY_REDIRECTS" in error_str:
+                self.last_error = "Too many redirects"
+            elif "ERR_EMPTY_RESPONSE" in error_str:
+                self.last_error = "Empty response from server"
+            else:
+                self.last_error = f"Navigation failed: {error_str[:100]}"
+
+            slog.detail_warning(f"Navigation error: {self.last_error}")
             return False
     
     async def take_screenshot(self, name: str = "screenshot") -> Optional[str]:

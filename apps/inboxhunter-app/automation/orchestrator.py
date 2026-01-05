@@ -1136,12 +1136,13 @@ class InboxHunterBot:
                 # Record navigation failure as SKIPPED (not failed)
                 # Network errors, timeouts, connection resets are not processing failures
                 # They should be skipped so user can retry later if needed
-                slog.url_skipped("Could not load page (network error)")
+                error_reason = getattr(self.browser, 'last_error', None) or 'Unknown error'
+                slog.url_skipped(f"Could not load page ({error_reason})")
                 self.stats.setdefault("pages_skipped_load_error", 0)
                 self.stats["pages_skipped_load_error"] += 1
                 self._record_result(url, source, "skipped", [], 
-                                   error_message="Page failed to load",
-                                   details="Could not load page - timeout or network error")
+                                   error_message=f"Page failed to load: {error_reason}",
+                                   details=f"Could not load page - {error_reason}")
                 return False
             
             # Check if the initial URL redirected to an app store
