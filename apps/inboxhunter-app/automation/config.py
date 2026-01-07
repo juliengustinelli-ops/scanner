@@ -60,7 +60,8 @@ class Settings(BaseModel):
     min_delay: int = Field(default=10, alias="minDelay")  # Default 10s, range 5-60
     max_delay: int = Field(default=30, alias="maxDelay")  # Default 30s, range 10-120
     llm_model: str = Field(default="gpt-4o", alias="llmModel")
-    
+    batch_planning: bool = Field(default=False, alias="batchPlanning")  # Use batch planning for faster execution
+
     @field_validator('ad_limit')
     @classmethod
     def validate_ad_limit(cls, v: int) -> int:

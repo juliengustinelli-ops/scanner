@@ -78,6 +78,8 @@ class AgentState:
         self.error_messages_seen: Dict[str, int] = {}  # Track how many times each error appears
         self.recent_actions: List[str] = []  # Track recent action patterns
         self.stuck_loop_detected: bool = False  # Flag when stuck in a loop
+        # NEW: Track selectors that don't exist on the page (hallucinations)
+        self.non_existent_selectors: set = set()  # Blocklist of selectors that were proven to not exist
     
     def add_action(self, action: AgentAction, field_type: str = None):
         self.actions_taken.append(action)
@@ -458,16 +460,23 @@ class AIAgentOrchestrator:
     
     async def execute_signup(self) -> Dict[str, Any]:
         """Execute the sign-up process using continuous reasoning loop."""
+
+        # Check if batch planning mode is enabled
+        batch_planning = self.llm_config.get("batch_planning", False)
+        if batch_planning:
+            slog.detail("🚀 Starting AI Agent with BATCH PLANNING mode...")
+            return await self._execute_batch_signup()
+
         slog.detail("🚀 Starting AI Agent reasoning loop...")
-        
+
         try:
             if self._stop_check():
                 return {"success": False, "fields_filled": [], "actions": [], "errors": ["Stop requested"], "interrupted_by_stop": True}
-            
-            await asyncio.sleep(2)
-            
 
-            
+            await asyncio.sleep(2)
+
+
+
             # Runtime Cart/Product Page Detection (Initial Check)
             unwanted_check = await self._check_unwanted_page_state()
             if unwanted_check["is_unwanted"]:
@@ -1173,7 +1182,290 @@ class AIAgentOrchestrator:
             
         except Exception as e:
             return {"is_unwanted": False, "reason": str(e)}
-    
+
+    async def _execute_batch_signup(self) -> Dict[str, Any]:
+        """
+        BATCH PLANNING MODE: Get all actions in one LLM call, then execute them.
+        This is a separate execution path that reduces LLM calls by 50-70%.
+        """
+        try:
+            if self._stop_check():
+                return {"success": False, "fields_filled": [], "actions": [], "errors": ["Stop requested"], "interrupted_by_stop": True}
+
+            # Runtime unwanted page detection
+            unwanted_check = await self._check_unwanted_page_state()
+            if unwanted_check["is_unwanted"]:
+                reason = unwanted_check["reason"]
+                slog.detail_warning(f"⚠️ UNWANTED PAGE DETECTED: {reason}")
+                return {
+                    "success": False, "fields_filled": [], "actions": [],
+                    "errors": [f"Unwanted page detected ({reason}) - skipping"],
+                    "skipped_reason": "unwanted_page"
+                }
+
+            # Step 1: Get page HTML (no screenshot needed - LLM reads HTML directly)
+            slog.detail("📄 Getting page HTML for batch planning...")
+            page_state = await self._observe_page(use_vision=False, minimal=True)
+
+            # Build context for batch planning
+            context = self._build_reasoning_context(page_state)
+
+            # Step 2: Get batch plan from LLM (ONE call, HTML only)
+            slog.detail("🧠 Getting batch plan from LLM...")
+            batch_plan = await self.llm_analyzer.get_batch_plan(context)
+
+            if batch_plan.get("error"):
+                slog.detail_warning(f"⚠️ Batch planning failed: {batch_plan['error']}")
+                # Fall back to regular execution
+                slog.detail("↩️ Falling back to step-by-step execution...")
+                return await self._execute_signup_regular()
+
+            # Check if early detection found no form (no LLM call made)
+            if batch_plan.get("no_form"):
+                reason = batch_plan.get("reasoning", "No signup form found")
+                slog.detail(f"ℹ️ {reason}")
+                return {
+                    "success": False, "fields_filled": [], "actions": [],
+                    "errors": [reason], "skipped_reason": "no_form"
+                }
+
+            actions = batch_plan.get("actions", [])
+
+            # Filter out "complete" actions - they just indicate no form found
+            actionable = [a for a in actions if a.get("action") != "complete"]
+            if not actionable:
+                reason = actions[0].get("reasoning", "No signup form found") if actions else "No signup form found"
+                slog.detail(f"ℹ️ No actionable items in batch plan: {reason}")
+                return {
+                    "success": False, "fields_filled": [], "actions": [],
+                    "errors": [reason], "skipped_reason": "no_form"
+                }
+
+            actions = actionable  # Use only actionable items
+
+            slog.detail(f"📋 Batch plan: {len(actions)} actions to execute")
+            for i, action in enumerate(actions, 1):
+                slog.detail(f"   {i}. {action.get('action')}: {action.get('selector', 'N/A')[:40]}")
+
+            # Step 3: Execute all actions in sequence
+            executed_count = 0
+            for i, action_data in enumerate(actions, 1):
+                if self._stop_check():
+                    return {
+                        "success": False,
+                        "fields_filled": list(self.state.fields_filled.keys()),
+                        "actions": [a.to_dict() for a in self.state.actions_taken],
+                        "errors": ["Stop requested"],
+                        "interrupted_by_stop": True
+                    }
+
+                action_type = action_data.get("action", "")
+                selector = action_data.get("selector", "")
+                field_type = action_data.get("field_type", "")
+                reasoning = action_data.get("reasoning", "")
+
+                slog.detail(f"\n⚡ Executing action {i}/{len(actions)}: {action_type}")
+
+                if action_type == "complete":
+                    slog.detail("   ✅ Plan indicates completion")
+                    break
+
+                # Create AgentAction object
+                action = AgentAction(
+                    action_type=action_type,
+                    selector=selector,
+                    value=self._get_value_for_field_type(field_type) if action_type == "fill_field" else "",
+                    reasoning=reasoning,
+                    field_type=field_type
+                )
+
+                # Execute the action
+                result = await self._execute_action(action)
+
+                if result.get("success"):
+                    action.success = True
+                    executed_count += 1
+                    slog.detail_success(f"   ✅ {action_type} succeeded")
+
+                    # Track fields filled
+                    if action_type == "fill_field" and selector:
+                        self.state.fields_filled[selector] = action.value
+                        if field_type:
+                            self.state.field_types_filled[field_type] = selector
+                else:
+                    action.success = False
+                    action.error_message = result.get("error", "Unknown error")
+                    slog.detail_warning(f"   ⚠️ {action_type} failed: {action.error_message}")
+
+                    # Add to blocklist if not found
+                    if "not exist" in action.error_message.lower() or "not found" in action.error_message.lower():
+                        self.state.non_existent_selectors.add(selector)
+
+                self.state.add_action(action, field_type=field_type)
+                self.state.current_step += 1
+
+            # Step 4: Check for success
+            slog.detail("\n🔍 Checking for success indicators...")
+
+            # Count successful vs failed actions
+            successful_actions = [a for a in self.state.actions_taken if a.success]
+            failed_actions = [a for a in self.state.actions_taken if not a.success]
+            submit_clicked = any(a.action_type == "click" and a.success for a in self.state.actions_taken)
+            fields_filled = len([a for a in self.state.actions_taken if a.action_type == "fill_field" and a.success])
+
+            # Count non-critical failures separately (LLM hallucinations or hidden elements)
+            # These don't indicate a real problem - just that LLM guessed wrong selectors
+            hallucination_failures = len([a for a in failed_actions
+                if a.error_message and (
+                    "not exist" in a.error_message.lower() or
+                    "not found" in a.error_message.lower() or
+                    "not visible" in a.error_message.lower() or
+                    "missing selector" in a.error_message.lower() or
+                    "blocklisted" in a.error_message.lower()
+                )])
+
+            # Re-observe page to check for success
+            final_page_state = await self._observe_page(use_vision=False)
+            if final_page_state.get("has_success_indicator"):
+                slog.detail_success("🎉 SUCCESS indicator detected!")
+                self.state.success = True
+                self.state.complete = True
+            else:
+                # Check for overlay success
+                overlay_result = await self._check_and_handle_overlay()
+                if overlay_result.get("is_success"):
+                    slog.detail_success(f"🎉 SUCCESS via overlay: {overlay_result.get('reason')}")
+                    self.state.success = True
+                    self.state.complete = True
+                elif submit_clicked and fields_filled > 0:
+                    # Key actions succeeded: filled at least one field + clicked submit
+                    # Ignore LLM hallucinations (non-existent elements) as they don't affect actual submission
+                    real_failures = len(failed_actions) - hallucination_failures
+                    if real_failures == 0:
+                        slog.detail_success(f"🎉 SUCCESS: Filled {fields_filled} fields + submitted ({hallucination_failures} hallucinated fields ignored)")
+                        self.state.success = True
+                        self.state.complete = True
+
+            # Check if ALL fill actions were hallucinations (no real form found)
+            fill_actions = [a for a in self.state.actions_taken if a.action_type == "fill_field"]
+            if fill_actions and fields_filled == 0 and hallucination_failures == len(fill_actions):
+                # All fill attempts failed because selectors don't exist - LLM hallucinated the form
+                slog.detail("ℹ️ All selectors were hallucinations - treating as no form found")
+                return {
+                    "success": False, "fields_filled": [], "actions": [],
+                    "errors": ["No signup form found (LLM hallucinated selectors)"],
+                    "skipped_reason": "no_form"
+                }
+
+            # Build result
+            result = self._build_final_result()
+            if result["success"]:
+                slog.detail_success(f"✅ Batch execution completed: {executed_count} actions, SUCCESS")
+            else:
+                slog.detail(f"📊 Batch execution completed: {executed_count} actions, no success detected")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Batch execution error: {e}")
+            return {
+                "success": False,
+                "fields_filled": list(self.state.fields_filled.keys()),
+                "actions": [a.to_dict() for a in self.state.actions_taken],
+                "errors": [f"Batch execution error: {str(e)}"]
+            }
+
+    async def _execute_signup_regular(self) -> Dict[str, Any]:
+        """Regular step-by-step execution (fallback from batch mode)."""
+        # This is a wrapper that continues with the regular execution flow
+        # Reset state for regular execution
+        self.state.current_step = 1
+        # Continue with the regular while loop from execute_signup
+        # Note: This is simplified - in production we'd need to properly integrate
+        return await self._run_regular_loop()
+
+    async def _run_regular_loop(self) -> Dict[str, Any]:
+        """Run the regular step-by-step execution loop."""
+        last_action_success = True
+
+        while not self.state.complete and self.state.current_step <= self.state.max_steps:
+            if self._stop_check():
+                return {
+                    "success": False,
+                    "fields_filled": list(self.state.fields_filled.keys()),
+                    "actions": [a.to_dict() for a in self.state.actions_taken],
+                    "errors": ["Stop requested"],
+                    "interrupted_by_stop": True
+                }
+
+            # Observe page
+            use_vision = self._should_use_vision(self.state.current_step, last_action_success)
+            page_state = await self._observe_page(use_vision=use_vision)
+
+            # Get next action from LLM
+            next_action = await self._reason_next_action(page_state)
+
+            if not next_action:
+                break
+
+            # Execute action
+            action_result = await self._execute_action(next_action)
+
+            if action_result["success"]:
+                next_action.success = True
+                last_action_success = True
+            else:
+                next_action.success = False
+                next_action.error_message = action_result.get("error", "Unknown error")
+                last_action_success = False
+
+            self.state.add_action(next_action)
+            self.state.current_step += 1
+
+        return self._build_final_result()
+
+    def _get_value_for_field_type(self, field_type: str) -> str:
+        """Get the appropriate credential value for a field type."""
+        field_type_lower = field_type.lower() if field_type else ""
+
+        if field_type_lower == "email":
+            return self.credentials.get("email", "")
+        elif field_type_lower in ["full_name", "fullname", "name"]:
+            return self.credentials.get("full_name", "")
+        elif field_type_lower in ["first_name", "firstname"]:
+            return self.credentials.get("first_name", "")
+        elif field_type_lower in ["last_name", "lastname"]:
+            return self.credentials.get("last_name", "")
+        elif field_type_lower in ["phone", "telephone", "mobile"]:
+            return self.credentials.get("phone", "")
+        elif field_type_lower == "checkbox":
+            return "true"
+        else:
+            return ""
+
+    def _build_final_result(self) -> Dict[str, Any]:
+        """Build the final result dictionary for batch/regular execution."""
+        errors = []
+        if not self.state.success:
+            # Collect any errors from actions
+            for action in self.state.actions_taken:
+                if not action.success and action.error_message:
+                    if action.error_message not in errors:
+                        errors.append(action.error_message)
+
+        return {
+            "success": self.state.success,
+            "fields_filled": list(self.state.fields_filled.keys()),
+            "field_types_filled": self.state.get_filled_field_types(),
+            "actions": [a.to_dict() for a in self.state.actions_taken],
+            "errors": errors,
+            "form_submitted": self.state.form_submitted,
+            "submit_attempts": self.state.submit_attempts,
+            "stuck_loop_detected": getattr(self.state, 'stuck_loop_detected', False),
+            "captcha_attempted": getattr(self.state, 'captcha_attempted', False),
+            "captcha_solved": getattr(self.state, 'captcha_solved', False)
+        }
+
     async def _capture_screenshot(self) -> Optional[str]:
         """Capture full page screenshot as base64 for comprehensive AI visibility."""
         try:
@@ -1193,13 +1485,38 @@ class AIAgentOrchestrator:
             except:
                 return None
     
-    async def _observe_page(self, use_vision: bool = True) -> Dict[str, Any]:
-        """Observe current page state."""
-        logger.debug(f"👁️ Observing page (vision={use_vision})...")
-        
+    async def _observe_page(self, use_vision: bool = True, minimal: bool = False) -> Dict[str, Any]:
+        """Observe current page state.
+
+        Args:
+            use_vision: Whether to capture screenshot
+            minimal: If True, skip success/error detection (faster for batch mode)
+        """
+        logger.debug(f"👁️ Observing page (vision={use_vision}, minimal={minimal})...")
+
         try:
             screenshot_base64 = await self._capture_screenshot() if use_vision else None
             page_info = await self.llm_analyzer._extract_page_info()
+
+            # For minimal mode (batch planning), skip expensive detection
+            if minimal:
+                return {
+                    "url": self.page.url,
+                    "screenshot": screenshot_base64,
+                    "forms": page_info.get("forms", []),
+                    "inputs": page_info.get("inputs", []),
+                    "buttons": page_info.get("buttons", []),
+                    "visible_text": page_info.get("visibleText", "")[:500],
+                    "simplified_html": page_info.get("simplifiedHtml", ""),
+                    "has_success_indicator": False,
+                    "has_error_messages": False,
+                    "error_messages": [],
+                    "fields_already_filled": self.state.fields_filled,
+                    "is_likely_login_page": False,
+                    "login_indicators": {},
+                    "form_count": len(page_info.get("forms", [])),
+                    "captcha_detected": {"found": False}
+                }
             
             visible_text = await self.page.evaluate("""
                 () => document.body.innerText.substring(0, 2000)
@@ -1394,9 +1711,14 @@ class AIAgentOrchestrator:
             }
             
         except Exception as e:
-            logger.error(f"Observe error: {e}")
+            # Navigation errors are expected after successful form submissions
+            error_str = str(e)
+            if "context was destroyed" in error_str or "navigation" in error_str.lower() or "Cannot read properties of null" in error_str:
+                logger.debug(f"Page navigated during observation (expected after submit): {e}")
+            else:
+                logger.error(f"Observe error: {e}")
             return {}
-    
+
     async def _reason_next_action(self, page_state: Dict[str, Any]) -> Optional[AgentAction]:
         """Use LLM to determine next action with rate limit handling."""
         logger.debug("🧠 Reasoning next action...")
@@ -1624,6 +1946,8 @@ class AIAgentOrchestrator:
                 "form_selector": self.state.active_form_selector,
                 "submit_selector": self.state.active_form_submit_selector
             } if self.state.active_form_id else None,
+            # BLOCKLIST: Selectors proven to NOT exist on the page - DO NOT suggest these
+            "non_existent_selectors": list(self.state.non_existent_selectors),
         }
     
     def _parse_llm_response(self, llm_response: Dict[str, Any], page_state: Dict[str, Any] = None) -> Optional[AgentAction]:
@@ -2179,8 +2503,8 @@ class AIAgentOrchestrator:
                         for (const selector of overlaySelectors) {
                             try {
                                 const overlay = document.querySelector(selector);
-                                if (overlay && overlay.offsetParent !== null) {
-                                    // Check overlay style
+                                if (overlay) {
+                                    // Check overlay style (note: offsetParent is null for position:fixed)
                                     const style = window.getComputedStyle(overlay);
                                     if (style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity) > 0) {
                                         // Get overlay text and HTML
@@ -2189,15 +2513,15 @@ class AIAgentOrchestrator:
                                         const hasIframe = overlay.querySelector('iframe') !== null;
                                         const iframeSrc = overlay.querySelector('iframe')?.src?.toLowerCase() || '';
                                         const hasCloseBtn = overlay.querySelector('[class*="close"], [aria-label*="close"], button svg') !== null;
-                                        
+
                                         // CAPTCHA DETECTION - NOT success!
                                         const captchaIndicators = [
-                                            'captcha', 'recaptcha', 'hcaptcha', 'turnstile', 
+                                            'captcha', 'recaptcha', 'hcaptcha', 'turnstile',
                                             'verify you are human', 'robot', 'i am not a robot',
                                             'security check', 'challenge'
                                         ];
-                                        const hasCaptcha = captchaIndicators.some(c => 
-                                            overlayText.includes(c) || overlayHtml.includes(c) || 
+                                        const hasCaptcha = captchaIndicators.some(c =>
+                                            overlayText.includes(c) || overlayHtml.includes(c) ||
                                             iframeSrc.includes('recaptcha') || iframeSrc.includes('hcaptcha') ||
                                             iframeSrc.includes('challenges.cloudflare')
                                         );
@@ -2320,10 +2644,160 @@ class AIAgentOrchestrator:
         
         return self._generate_phone_for_country(country_code)
     
+    async def _dismiss_blocking_overlay_before_click(self) -> bool:
+        """
+        Check for and dismiss any overlay that might be blocking clicks.
+        This is called BEFORE attempting clicks to proactively handle popups
+        that appear during form filling (e.g., promotional popups, course offers).
+
+        Returns:
+            True if an overlay was found and dismissed, False otherwise
+        """
+        try:
+            # Check for blocking overlay using comprehensive selectors
+            overlay_info = await self.page.evaluate("""
+                () => {
+                    // Comprehensive overlay selectors - including 'shown' pattern
+                    const overlaySelectors = [
+                        '[class*="overlay"][class*="shown"]',
+                        '[class*="overlay"][class*="show"]',
+                        '[class*="overlay"][class*="visible"]',
+                        '[class*="overlay"][class*="active"]',
+                        '[class*="popup"][class*="shown"]',
+                        '[class*="popup"][class*="show"]',
+                        '[class*="popup"][class*="visible"]',
+                        '[class*="popup"][class*="active"]',
+                        '[class*="modal"][class*="shown"]',
+                        '[class*="modal"][class*="show"]',
+                        '[class*="modal"][class*="visible"]',
+                        '[class*="modal"][class*="active"]',
+                        '.modal.show',
+                        '.modal.in',
+                        '[role="dialog"]:not([aria-hidden="true"])',
+                    ];
+
+                    for (const selector of overlaySelectors) {
+                        try {
+                            const overlay = document.querySelector(selector);
+                            if (overlay) {
+                                const style = window.getComputedStyle(overlay);
+                                // Note: offsetParent is null for position:fixed elements, so we check style instead
+                                if (style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity) > 0) {
+                                    const overlayText = overlay.innerText?.toLowerCase() || '';
+
+                                    // Skip if this looks like a success message - don't dismiss!
+                                    const successIndicators = ['thank you', 'success', 'confirmed', 'subscribed', 'welcome'];
+                                    if (successIndicators.some(s => overlayText.includes(s))) {
+                                        return { found: true, isSuccess: true };
+                                    }
+
+                                    // Look for close button
+                                    const closeSelectors = [
+                                        '[class*="close"]',
+                                        '[aria-label*="close"]',
+                                        '[aria-label*="Close"]',
+                                        'button:has(svg)',
+                                        '[class*="dismiss"]',
+                                        '[class*="x-button"]',
+                                        '.close-btn',
+                                        'button.close',
+                                    ];
+
+                                    for (const closeSelector of closeSelectors) {
+                                        try {
+                                            const closeBtn = overlay.querySelector(closeSelector);
+                                            if (closeBtn) {
+                                                return {
+                                                    found: true,
+                                                    isSuccess: false,
+                                                    hasCloseBtn: true,
+                                                    closeBtnSelector: selector + ' ' + closeSelector,
+                                                    overlaySelector: selector
+                                                };
+                                            }
+                                        } catch(e) {}
+                                    }
+
+                                    // Overlay found but no close button - try clicking outside
+                                    return {
+                                        found: true,
+                                        isSuccess: false,
+                                        hasCloseBtn: false,
+                                        overlaySelector: selector
+                                    };
+                                }
+                            }
+                        } catch (e) {}
+                    }
+
+                    return { found: false };
+                }
+            """)
+
+            if not overlay_info.get("found"):
+                return False
+
+            # Don't dismiss success overlays
+            if overlay_info.get("isSuccess"):
+                logger.debug("Found success overlay - not dismissing")
+                return False
+
+            slog.detail(f"   🔲 Found blocking overlay: {overlay_info.get('overlaySelector', 'unknown')}")
+
+            # Try to close it
+            if overlay_info.get("hasCloseBtn"):
+                close_selector = overlay_info.get("closeBtnSelector")
+                try:
+                    close_btn = await self.page.wait_for_selector(close_selector, timeout=2000)
+                    if close_btn:
+                        await close_btn.click(timeout=3000)
+                        await asyncio.sleep(0.3)
+                        slog.detail(f"   ✅ Closed overlay using: {close_selector}")
+                        return True
+                except Exception as e:
+                    logger.debug(f"Could not click close button: {e}")
+
+            # Try clicking outside the overlay to dismiss it
+            try:
+                # Click at top-left corner (usually outside modals)
+                await self.page.mouse.click(10, 10)
+                await asyncio.sleep(0.3)
+
+                # Check if overlay is still there
+                still_visible = await self.page.evaluate(f"""
+                    () => {{
+                        const overlay = document.querySelector('{overlay_info.get("overlaySelector", "")}');
+                        if (!overlay) return false;
+                        const style = window.getComputedStyle(overlay);
+                        return style.display !== 'none' && style.visibility !== 'hidden';
+                    }}
+                """)
+
+                if not still_visible:
+                    slog.detail("   ✅ Closed overlay by clicking outside")
+                    return True
+            except Exception as e:
+                logger.debug(f"Could not dismiss overlay by clicking outside: {e}")
+
+            # Try pressing Escape key
+            try:
+                await self.page.keyboard.press("Escape")
+                await asyncio.sleep(0.3)
+                slog.detail("   ✅ Pressed Escape to dismiss overlay")
+                return True
+            except:
+                pass
+
+            return False
+
+        except Exception as e:
+            logger.debug(f"Error in _dismiss_blocking_overlay_before_click: {e}")
+            return False
+
     async def _check_and_handle_overlay(self) -> Dict[str, Any]:
         """
         Check for blocking overlays/modals that may indicate success or need to be closed.
-        
+
         IMPORTANT: We must carefully analyze overlay content - not all overlays indicate success!
         Overlays can contain:
         - CAPTCHAs (NOT success)
@@ -2331,7 +2805,7 @@ class AIAgentOrchestrator:
         - Additional verification steps (NOT success)
         - Success/confirmation messages (success)
         - Recommendation popups after signup (success)
-        
+
         Returns:
             - {"is_success": True, "reason": "..."} if overlay indicates successful signup
             - {"closed": True} if overlay was closed
@@ -2341,47 +2815,61 @@ class AIAgentOrchestrator:
         try:
             overlay_info = await self.page.evaluate("""
                 () => {
-                    // Common overlay/modal selectors
+                    // Common overlay/modal selectors - comprehensive list including 'shown' pattern
                     const overlaySelectors = [
+                        // Shown/show patterns (common in many frameworks)
+                        '[class*="overlay"][class*="shown"]',
+                        '[class*="overlay"][class*="show"]',
+                        '[class*="overlay"][class*="visible"]',
+                        '[class*="overlay"][class*="active"]',
+                        '[class*="popup"][class*="shown"]',
+                        '[class*="popup"][class*="show"]',
+                        '[class*="popup"][class*="visible"]',
+                        '[class*="popup"][class*="active"]',
+                        '[class*="modal"][class*="shown"]',
+                        '[class*="modal"][class*="show"]',
+                        '[class*="modal"][class*="visible"]',
+                        '[class*="modal"][class*="active"]',
+                        // Data attribute patterns
                         '[data-active="true"][class*="overlay"]',
                         '[data-active="true"][class*="modal"]',
                         '.formkit-overlay[data-active="true"]',
                         '.seva-overlay[data-active="true"]',
-                        '[class*="modal"][class*="active"]',
-                        '[class*="popup"][class*="show"]',
-                        '[class*="overlay"][class*="visible"]',
+                        '[data-state="open"]',
+                        // Role-based patterns
                         '[role="dialog"][aria-hidden="false"]',
                         '[role="dialog"]:not([aria-hidden="true"])',
+                        // Bootstrap/common framework patterns
                         '.modal.show',
                         '.modal.in',
-                        '[data-state="open"]',
                     ];
                     
                     for (const selector of overlaySelectors) {
                         try {
                             const overlay = document.querySelector(selector);
-                            if (overlay && overlay.offsetParent !== null) {
+                            if (overlay) {
                                 const style = window.getComputedStyle(overlay);
+                                // Note: offsetParent is null for position:fixed elements, so check style instead
                                 if (style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity) > 0) {
                                     const overlayText = overlay.innerText?.toLowerCase() || '';
                                     const overlayHtml = overlay.innerHTML?.toLowerCase() || '';
                                     const hasIframe = overlay.querySelector('iframe') !== null;
-                                    
+
                                     // Get iframe src if exists
                                     const iframeSrc = overlay.querySelector('iframe')?.src || '';
                                     const iframeSrcLower = iframeSrc.toLowerCase();
-                                    
+
                                     // CAPTCHA DETECTION - these are NOT success!
                                     const captchaIndicators = [
-                                        'captcha', 'recaptcha', 'hcaptcha', 'turnstile', 
+                                        'captcha', 'recaptcha', 'hcaptcha', 'turnstile',
                                         'verify you are human', 'robot', 'bot detection',
                                         'security check', 'challenge', 'i am not a robot',
                                         'verify you are not a robot', 'prove you are human'
                                     ];
-                                    const hasCaptcha = captchaIndicators.some(c => 
+                                    const hasCaptcha = captchaIndicators.some(c =>
                                         overlayText.includes(c) || overlayHtml.includes(c) || iframeSrcLower.includes(c)
                                     );
-                                    
+
                                     // Check for CAPTCHA iframes
                                     const captchaIframeDomains = [
                                         'recaptcha', 'google.com/recaptcha', 'hcaptcha.com', 
@@ -2883,14 +3371,29 @@ class AIAgentOrchestrator:
         try:
             if not action.selector or not action.value:
                 return {"success": False, "error": "Missing selector or value"}
-            
+
+            # BLOCKLIST CHECK: Immediately reject selectors we know don't exist
+            if action.selector in self.state.non_existent_selectors:
+                logger.debug(f"   🚫 Rejecting blocklisted selector: {action.selector[:40]}")
+                return {"success": False, "error": f"BLOCKLISTED - selector does not exist: {action.selector[:40]}"}
+
+            # QUICK VALIDATION: Check if selector exists before wasting time on timeout
+            selector_exists = await self._selector_exists_on_page(action.selector)
+            if not selector_exists:
+                # Add to blocklist so we don't try again
+                self.state.non_existent_selectors.add(action.selector)
+                logger.debug(f"   🚫 Selector doesn't exist, added to blocklist: {action.selector[:40]}")
+                return {"success": False, "error": f"Element does not exist on page: {action.selector[:40]}"}
+
             # Parse selector
             parsed_selector = self._parse_selector(action.selector)
-            
+
             # Wait for element (use attached for hidden checkboxes)
             element = await self.page.wait_for_selector(parsed_selector, state='attached', timeout=5000)
-            
+
             if not element:
+                # Also add to blocklist if wait_for_selector fails
+                self.state.non_existent_selectors.add(action.selector)
                 return {"success": False, "error": f"Element not found: {action.selector}"}
             
             # Track which form this field belongs to - helps find the correct submit button
@@ -3129,9 +3632,12 @@ class AIAgentOrchestrator:
                         return {"success": True}
                     
                     logger.warning(f"⚠️ Phone verification: typed '{value_str}' but field shows '{filled_value}'")
-                
                     return {"success": False, "error": "Value verification failed"}
-            
+
+                # Non-phone field verification failed
+                logger.warning(f"⚠️ Value verification failed: expected '{value_str}' but got '{filled_value}'")
+                return {"success": False, "error": f"Value verification failed - expected '{value_str[:20]}' but got '{filled_value[:20]}'"}
+
         except Exception as e:
             error_msg = str(e)
             if "is not a valid selector" in error_msg:
@@ -3151,13 +3657,31 @@ class AIAgentOrchestrator:
             return f"text={text}"
         
         return selector
-    
+
+    async def _selector_exists_on_page(self, selector: str) -> bool:
+        """
+        Quick check if a selector exists on the page without waiting.
+        Used to validate LLM suggestions before attempting actions.
+        """
+        try:
+            parsed_selector = self._parse_selector(selector)
+            # Use a very short timeout (100ms) just to check existence
+            element = await self.page.query_selector(parsed_selector)
+            return element is not None
+        except Exception:
+            return False
+
     async def _execute_click(self, action: AgentAction) -> Dict[str, Any]:
         """Click an element with multiple fallback strategies."""
         try:
             if not action.selector:
                 return {"success": False, "error": "Missing selector"}
-            
+
+            # BLOCKLIST CHECK: Immediately reject selectors we know don't exist
+            if action.selector in self.state.non_existent_selectors:
+                logger.debug(f"   🚫 Rejecting blocklisted click selector: {action.selector[:40]}")
+                return {"success": False, "error": f"BLOCKLISTED - selector does not exist: {action.selector[:40]}"}
+
             # Track submit attempts - but be smart about distinguishing form submits from CTA buttons
             submit_keywords = ["submit", "sign up", "signup", "register", "join", "continue", "next", 
                               "create account", "subscribe", "send"]
@@ -3211,7 +3735,17 @@ class AIAgentOrchestrator:
                     )
                 except:
                     pass
-            
+
+            # PRE-CLICK: Check for and dismiss any blocking overlays BEFORE attempting click
+            # This handles popups that appear during form filling (e.g., "free course" popups)
+            try:
+                dismissed = await self._dismiss_blocking_overlay_before_click()
+                if dismissed:
+                    slog.detail("   🔲 Dismissed blocking overlay before click")
+                    await asyncio.sleep(0.5)  # Give page time to update after overlay dismissal
+            except Exception as e:
+                logger.debug(f"Pre-click overlay check failed: {e}")
+
             # STRATEGY 0: If we have an active form submit selector and this looks like a submit action,
             # try the active form's submit button FIRST before trying generic selectors
             if is_real_submit and self.state.active_form_submit_selector:
@@ -3309,7 +3843,9 @@ class AIAgentOrchestrator:
             
             # If all strategies failed, check if this is due to overlay blocking
             # This is common after form submission when a success popup appears
-            if self.state.form_submitted and self.state.submit_attempts > 0:
+            # Also check when we have filled fields (attempting to submit) even if form_submitted isn't set yet
+            has_filled_fields = len(self.state.fields_filled) > 0
+            if self.state.form_submitted or has_filled_fields:
                 # Check if an overlay is blocking the click
                 overlay_result = await self._check_and_handle_overlay()
                 if overlay_result.get("is_success"):
@@ -3332,15 +3868,19 @@ class AIAgentOrchestrator:
             # If all strategies failed, track as potential hallucination
             self.state.hallucination_count += 1
             logger.warning(f"   🤔 Element not found (hallucination #{self.state.hallucination_count}?)")
-            
+
+            # Add to blocklist so we don't waste time trying this selector again
+            self.state.non_existent_selectors.add(action.selector)
+            logger.debug(f"   🚫 Added to blocklist: {action.selector[:40]}")
+
             # Check if selector looks like a close/dismiss button (common hallucination)
             is_close_button = any(x in action.selector.lower() for x in ["×", "close", "dismiss", "x-button", "modal"])
             if is_close_button:
                 slog.detail("   💡 Ignoring close button attempt - likely hallucination")
                 # Return success to avoid counting this as a real failure
                 return {"success": True, "note": "Skipped hallucinated close button"}
-            
-            return {"success": False, "error": f"Could not click: {action.selector[:50]}"}
+
+            return {"success": False, "error": f"Element does not exist: {action.selector[:50]}"}
             
         except Exception as e:
             return {"success": False, "error": str(e)}

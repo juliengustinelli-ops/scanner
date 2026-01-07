@@ -238,12 +238,16 @@ class InboxHunterBot:
                 # Process the URL
                 result = await self._process_url(url, source)
                 
-                # result can be: True (success), False (failed), None (interrupted by stop)
+                # result can be: True (success), False (failed), None (interrupted), "quick_skip" (no form)
                 if result is None:
                     # Processing was interrupted by stop request
                     # URL remains in pending state - don't count as success or failure
                     slog.detail("⏹ URL left in pending state for next run")
                     break  # Stop processing more URLs
+                elif result == "quick_skip":
+                    # No form found - skip delay entirely, move to next URL immediately
+                    consecutive_failures = 0  # Don't count quick skips as failures
+                    continue
                 elif result:
                     processed += 1
                     consecutive_failures = 0
@@ -251,22 +255,8 @@ class InboxHunterBot:
                 else:
                     consecutive_failures += 1
                     # Failure logged by _process_url
-                
-                # Delay between signups (with stop check)
-                if i < len(urls) and not self._stop_check():
-                    delay = random_delay(
-                        self.config.settings.min_delay,
-                        self.config.settings.max_delay
-                    )
-                    slog.detail(f"⏳ Waiting {delay:.1f}s before next URL...")
-                    # Check stop during delay (every second)
-                    for _ in range(int(delay)):
-                        if self._stop_check():
-                            break
-                        await asyncio.sleep(1)
-                    else:
-                        # Sleep remaining fractional second
-                        await asyncio.sleep(delay % 1)
+
+                # No delay between URLs - move immediately to next
             
             # Print summary
             elapsed_time = time.time() - start_time
@@ -365,10 +355,7 @@ class InboxHunterBot:
             # First, scroll through the page to ensure all lazy-loaded content is visible
             slog.detail("🔍 Analyzing page structure (scrolling to load all content)...")
             await self._scroll_page_for_analysis()
-            
-            # Give time for any lazy-loaded content
-            await asyncio.sleep(1)
-            
+
             # === NEW: Extract and parse HTML content server-side ===
             html_analysis = await self._analyze_html_content()
             slog.detail(f"   🔎 HTML Analysis: {html_analysis.get('summary', 'N/A')}")
@@ -1159,11 +1146,18 @@ class InboxHunterBot:
                                    details="URL leads directly to app download page")
                 return False
             
-            # Analyze the page before attempting signup
-            analysis = await self._analyze_page()
-            
-            # Skip login-only pages
-            if analysis.has_login_form and not analysis.has_signup_form:
+            # BATCH MODE: Skip slow pre-analysis, let LLM detect forms from screenshot + HTML
+            if self.config.settings.batch_planning:
+                slog.detail("⚡ Batch mode: Skipping pre-analysis (LLM will detect forms)")
+                # Create minimal analysis result for batch mode
+                analysis = PageAnalysisResult()
+                analysis.has_signup_form = True  # Assume form exists, LLM will verify
+            else:
+                # Regular mode: Full page analysis
+                analysis = await self._analyze_page()
+
+            # Skip login-only pages (only in regular mode - batch mode lets LLM decide)
+            if not self.config.settings.batch_planning and analysis.has_login_form and not analysis.has_signup_form:
                 slog.url_skipped("Login page (no signup)")
                 self.stats["pages_skipped_login_only"] += 1
                 self._record_result(url, source, "skipped", [], 
@@ -1237,7 +1231,8 @@ class InboxHunterBot:
             
             llm_config = {
                 "api_key": self.config.api_keys.openai,
-                "model": self.config.settings.llm_model
+                "model": self.config.settings.llm_model,
+                "batch_planning": self.config.settings.batch_planning
             }
             
             # Pass the page analysis so LLM knows what was found
@@ -1305,14 +1300,18 @@ class InboxHunterBot:
                     elif "unwanted" in skipped_reason.lower():
                         self.stats["pages_skipped_no_form"] += 1
                         skip_category = "unwanted_page"
+                    elif "no_form" in skipped_reason.lower() or "no signup" in skipped_reason.lower():
+                        self.stats["pages_skipped_no_form"] += 1
+                        skip_category = "no_form"
                     else:
                         self.stats["pages_skipped_no_form"] += 1
-                    
-                    self._record_result(url, source, "skipped", [], 
+
+                    self._record_result(url, source, "skipped", [],
                                        error_message=f"Skipped by Agent: {skipped_reason}",
                                        error_category=skip_category,
                                        details=error_msg)
-                    return False
+                    # Return "quick_skip" for no_form to avoid unnecessary delay
+                    return "quick_skip" if skip_category == "no_form" else False
 
                 # Record failure (only if not interrupted)
                 errors = result.get("errors", [])

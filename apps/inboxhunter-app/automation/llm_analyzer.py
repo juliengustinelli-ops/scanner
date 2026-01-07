@@ -432,7 +432,12 @@ class LLMPageAnalyzer:
             return page_structure
             
         except Exception as e:
-            logger.error(f"Error extracting page info: {e}")
+            # Navigation errors are expected after successful form submissions
+            error_str = str(e)
+            if "context was destroyed" in error_str or "navigation" in error_str.lower():
+                logger.debug(f"Page navigated during extraction (expected after submit): {e}")
+            else:
+                logger.error(f"Error extracting page info: {e}")
             return {"forms": [], "inputs": [], "buttons": [], "simplifiedHtml": ""}
     
     async def _call_llm_for_next_action(self, context: Dict[str, Any], 
@@ -548,6 +553,21 @@ TRY A DIFFERENT APPROACH!
 ============================================================
 
 """
+
+        # NON-EXISTENT SELECTORS BLOCKLIST - These elements DO NOT exist on the page
+        non_existent = context.get('non_existent_selectors', [])
+        blocklist_section = ""
+        if non_existent:
+            blocklist_section = f"""
+🛑🛑🛑 BLOCKLIST - THESE SELECTORS DO NOT EXIST ON THIS PAGE 🛑🛑🛑
+{chr(10).join([f"  ❌ {sel}" for sel in non_existent[:10]])}
+
+⛔ DO NOT suggest ANY of the above selectors - they have been VERIFIED to not exist!
+⛔ If you need to fill a field type (e.g., first_name), find a DIFFERENT selector from VISIBLE INPUTS below.
+⛔ Only use selectors that appear in the VISIBLE INPUTS list!
+🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑🛑
+
+"""
         
         # Action history
         history_text = ""
@@ -557,7 +577,7 @@ TRY A DIFFERENT APPROACH!
             if not last.get('success') and last.get('error'):
                 history_text += f"\n   Error: {last.get('error')[:100]}"
         
-        return f"""{failed_warning_section}{local_analysis_section}{active_form_section}You are an AI agent signing up for an email list. Your goal is to SIGN UP (create new account), NOT login.
+        return f"""{blocklist_section}{failed_warning_section}{local_analysis_section}{active_form_section}You are an AI agent signing up for an email list. Your goal is to SIGN UP (create new account), NOT login.
 
 🚨 SIGNUP FORMS TO LOOK FOR 🚨
 - Newsletter signup forms (often in footer or sidebar)
@@ -948,5 +968,139 @@ Examples:
             if any(w in text for w in ["submit", "sign up", "signup", "next", "continue", "join", "register"]):
                 selector = f"#{btn['id']}" if btn.get('id') else f"button:has-text('{btn.get('text')[:20]}')"
                 return {"action": "click", "selector": selector, "reasoning": "Click submit"}
-        
+
         return {"action": "complete", "reasoning": "No more actions"}
+
+    def _build_batch_planning_prompt(self, context: Dict[str, Any]) -> str:
+        """Build prompt for batch planning mode - sends HTML directly to LLM."""
+        credentials = context.get("credentials", {})
+        page_url = context.get("page_url", "")
+        simplified_html = context.get("simplified_html", "")
+
+        return f"""You are a web automation agent. Analyze this HTML and return actions to sign up for an email newsletter.
+
+CRITICAL: Only create actions for elements that ACTUALLY EXIST in the HTML below!
+- Do NOT assume fields exist - check the HTML first
+- Do NOT hallucinate selectors - only use selectors you can see in the HTML
+- If only an email field exists, only fill email and click submit
+
+CREDENTIALS (use ONLY if matching field exists in HTML):
+- Email: {credentials.get('email', 'test@example.com')}
+- First Name: {credentials.get('first_name', 'John')} (only if first_name field exists)
+- Last Name: {credentials.get('last_name', 'Doe')} (only if last_name field exists)
+- Full Name: {credentials.get('full_name', 'John Doe')} (only if name/full_name field exists)
+- Phone: {credentials.get('phone', '1234567890')} (only if phone/tel field exists)
+
+PAGE URL: {page_url}
+
+HTML:
+{simplified_html}
+
+INSTRUCTIONS:
+1. Scan the HTML for actual form fields (look for <input>, <button>, etc.)
+2. ONLY create selectors for elements you can SEE in the HTML above
+3. Use exact selectors from the HTML: #id, [name="x"], or class selectors
+4. Find the submit button IN the HTML
+
+Return JSON:
+{{
+    "actions": [
+        {{"action": "fill_field", "selector": "#email", "field_type": "email"}},
+        {{"action": "click", "selector": "#submit"}}
+    ],
+    "reasoning": "Brief explanation"
+}}
+
+Valid field_type: email, full_name, first_name, last_name, phone, checkbox
+Valid action: fill_field, click, complete
+
+If no signup form found:
+{{"actions": [{{"action": "complete", "reasoning": "No signup form"}}], "reasoning": "No form"}}
+"""
+
+    async def get_batch_plan(self, context: Dict[str, Any], screenshot_base64: Optional[str] = None) -> Dict[str, Any]:
+        """Get a complete action plan for the page in one LLM call (HTML only, no screenshot)."""
+        simplified_html = context.get("simplified_html", "")
+
+        # Check if HTML has any usable form elements before calling LLM
+        # Empty or minimal HTML means no form to fill
+        html_lower = simplified_html.lower()
+        has_input = "<input" in html_lower
+        has_textarea = "<textarea" in html_lower
+        has_usable_elements = has_input or has_textarea
+
+        # Fast-fail if no form elements found
+        if not has_usable_elements:
+            logger.warning(f"⚠️ No input elements in HTML ({len(simplified_html)} chars) - skipping LLM call")
+            return {
+                "plan_type": "batch",
+                "actions": [{"action": "complete", "reasoning": "No signup form - no input elements found"}],
+                "reasoning": "No form elements detected in HTML",
+                "no_form": True
+            }
+
+        if len(simplified_html) < 50:
+            logger.warning(f"⚠️ HTML too short ({len(simplified_html)} chars) - skipping LLM call")
+            return {
+                "plan_type": "batch",
+                "actions": [{"action": "complete", "reasoning": "No signup form - page has minimal content"}],
+                "reasoning": "HTML content too minimal",
+                "no_form": True
+            }
+
+        # Check if HTML only contains search forms (no email signup)
+        # Skip LLM if no email-type inputs exist
+        has_email_input = 'type="email"' in html_lower or 'type=\'email\'' in html_lower
+        has_email_name = 'name="email"' in html_lower or 'name=\'email\'' in html_lower
+        has_email_placeholder = 'email' in html_lower and ('placeholder=' in html_lower or '@' in simplified_html)
+        is_search_only = ('action="/search"' in html_lower or 'role="search"' in html_lower) and not has_email_input and not has_email_name
+
+        if is_search_only and not has_email_placeholder:
+            logger.warning(f"⚠️ Only search forms found (no email inputs) - skipping LLM call")
+            return {
+                "plan_type": "batch",
+                "actions": [{"action": "complete", "reasoning": "No signup form - only search form"}],
+                "reasoning": "Page only has search forms",
+                "no_form": True
+            }
+
+        # Log the HTML being sent (only when we're actually sending to LLM)
+        html_preview = simplified_html[:200]
+        logger.info(f"📤 Sending HTML to LLM ({len(simplified_html)} chars): {html_preview}...")
+
+        prompt = self._build_batch_planning_prompt(context)
+
+        try:
+            # No screenshot - just HTML text
+            result = await self._call_openai(prompt, [], None)
+
+            # Validate the response
+            if not isinstance(result, dict):
+                logger.error(f"Batch plan returned non-dict: {type(result)}")
+                return {"plan_type": "batch", "actions": [], "error": "Invalid response format"}
+
+            if "actions" not in result:
+                logger.error(f"Batch plan missing 'actions': {result}")
+                return {"plan_type": "batch", "actions": [], "error": "Missing actions"}
+
+            actions = result.get("actions", [])
+            if not isinstance(actions, list):
+                logger.error(f"Batch plan 'actions' is not a list: {type(actions)}")
+                return {"plan_type": "batch", "actions": [], "error": "Actions not a list"}
+
+            # Validate each action
+            valid_actions = []
+            for action in actions:
+                if not isinstance(action, dict):
+                    continue
+                action_type = action.get("action", "")
+                if action_type in ["fill_field", "click", "complete"]:
+                    valid_actions.append(action)
+
+            result["actions"] = valid_actions
+            logger.info(f"Batch plan: {len(valid_actions)} actions planned")
+            return result
+
+        except Exception as e:
+            logger.error(f"Batch planning failed: {e}")
+            return {"plan_type": "batch", "actions": [], "error": str(e)}
