@@ -144,6 +144,299 @@ class AIAgentOrchestrator:
         
         slog.detail("🤖 AI Agent initialized")
     
+    def _humanize_error(self, error: str, action: AgentAction) -> str:
+        """Convert technical errors into clear, user-friendly messages that specify which field failed."""
+        if not error:
+            return "Unknown error"
+        
+        error_lower = error.lower()
+        
+        # Determine the field name for user-friendly display
+        field_name = self._get_friendly_field_name(action)
+        
+        # Element not found / timeout errors
+        if "timeout" in error_lower or "not found" in error_lower or "waiting for selector" in error_lower:
+            if action.action_type == "fill_field":
+                return f"Failed to fill {field_name}: Field not found on page"
+            elif action.action_type == "click":
+                btn_name = self._get_button_name(action)
+                return f"Failed to click {btn_name}: Button not found on page"
+            return f"Element not found: {action.selector[:50] if action.selector else 'unknown'}"
+        
+        # Hidden element errors
+        if "hidden" in error_lower or "not visible" in error_lower:
+            if action.action_type == "fill_field":
+                return f"Failed to fill {field_name}: Field is hidden or covered by another element"
+            elif action.action_type == "click":
+                btn_name = self._get_button_name(action)
+                return f"Failed to click {btn_name}: Button is hidden or covered"
+            return f"Element is hidden: {action.selector[:50] if action.selector else 'unknown'}"
+        
+        # Invalid selector errors
+        if "not a valid selector" in error_lower or "invalid selector" in error_lower:
+            if action.action_type == "fill_field":
+                return f"Failed to fill {field_name}: Could not locate field (invalid selector)"
+            return f"Invalid selector for {field_name}"
+        
+        # Value verification failed (field didn't accept our input)
+        if "verification failed" in error_lower or "value mismatch" in error_lower:
+            return f"Failed to fill {field_name}: Field rejected the input value"
+        
+        # Form validation errors
+        if "invalid" in error_lower or "required" in error_lower or "please enter" in error_lower:
+            return f"Form rejected {field_name}: {error[:60]}"
+        
+        # Network/connection errors
+        if "network" in error_lower or "connection" in error_lower or "fetch" in error_lower:
+            return f"Network error while filling {field_name}"
+        
+        # Rate limiting
+        if "rate" in error_lower and "limit" in error_lower:
+            return "LLM API rate limit - retrying automatically"
+        
+        # CAPTCHA errors
+        if "captcha" in error_lower or "recaptcha" in error_lower:
+            return "CAPTCHA is blocking form submission"
+        
+        # Click interception
+        if "intercept" in error_lower or "another element" in error_lower:
+            if action.action_type == "click":
+                btn_name = self._get_button_name(action)
+                return f"Failed to click {btn_name}: Blocked by popup or overlay"
+            return f"Click blocked by overlay while interacting with {field_name}"
+        
+        # Default: include field name for context
+        clean_error = error.replace("\n", " ").strip()
+        if action.action_type == "fill_field":
+            return f"Failed to fill {field_name}: {clean_error[:80]}"
+        elif action.action_type == "click":
+            btn_name = self._get_button_name(action)
+            return f"Failed to click {btn_name}: {clean_error[:80]}"
+        return clean_error[:100] if len(clean_error) > 100 else clean_error
+    
+    def _get_friendly_field_name(self, action: AgentAction) -> str:
+        """Get a user-friendly name for the field being acted upon."""
+        # First check if we have an explicit field_type
+        if action.field_type:
+            field_type_map = {
+                "email": "Email",
+                "first_name": "First Name",
+                "firstname": "First Name",
+                "last_name": "Last Name",
+                "lastname": "Last Name",
+                "full_name": "Full Name",
+                "fullname": "Full Name",
+                "name": "Name",
+                "phone": "Phone Number",
+                "telephone": "Phone Number",
+                "mobile": "Phone Number",
+                "checkbox": "Checkbox",
+                "terms": "Terms Checkbox",
+                "country": "Country",
+                "country_code": "Country Code",
+            }
+            return field_type_map.get(action.field_type.lower(), action.field_type.title())
+        
+        # Try to infer from selector
+        if action.selector:
+            selector_lower = action.selector.lower()
+            
+            # Check for common field patterns in selector
+            field_patterns = [
+                (["email", "e-mail"], "Email"),
+                (["first_name", "firstname", "first-name", "fname"], "First Name"),
+                (["last_name", "lastname", "last-name", "lname"], "Last Name"),
+                (["full_name", "fullname", "full-name"], "Full Name"),
+                (["name"], "Name"),  # Generic name - check after first/last
+                (["phone", "mobile", "tel", "telephone"], "Phone Number"),
+                (["country"], "Country"),
+                (["checkbox", "terms", "agree", "consent", "privacy"], "Checkbox"),
+                (["password"], "Password"),
+                (["company", "organization", "org"], "Company"),
+                (["address", "street"], "Address"),
+                (["city"], "City"),
+                (["state", "province"], "State"),
+                (["zip", "postal"], "Zip Code"),
+            ]
+            
+            for patterns, friendly_name in field_patterns:
+                if any(p in selector_lower for p in patterns):
+                    return friendly_name
+        
+        # Try to infer from the value being filled
+        if action.value:
+            value_str = str(action.value).lower()
+            if "@" in value_str and "." in value_str:
+                return "Email"
+        
+        # Fallback
+        return "form field"
+    
+    def _get_button_name(self, action: AgentAction) -> str:
+        """Get a user-friendly name for a button being clicked."""
+        if action.selector:
+            selector_lower = action.selector.lower()
+            
+            # Check for common button patterns
+            button_patterns = [
+                (["submit"], "Submit button"),
+                (["sign-up", "signup", "sign_up"], "Sign Up button"),
+                (["subscribe"], "Subscribe button"),
+                (["register"], "Register button"),
+                (["continue"], "Continue button"),
+                (["next"], "Next button"),
+                (["send"], "Send button"),
+                (["join"], "Join button"),
+                (["get-started", "get_started", "getstarted"], "Get Started button"),
+                (["country", "flag", "dial"], "Country selector"),
+            ]
+            
+            for patterns, friendly_name in button_patterns:
+                if any(p in selector_lower for p in patterns):
+                    return friendly_name
+        
+        # Check reasoning for hints
+        if action.reasoning:
+            reasoning_lower = action.reasoning.lower()
+            if "submit" in reasoning_lower:
+                return "Submit button"
+            if "country" in reasoning_lower or "code" in reasoning_lower:
+                return "Country selector"
+        
+        return "button"
+    
+    def _build_failure_summary(self) -> Dict[str, Any]:
+        """Build a detailed, user-friendly failure summary with categorized errors."""
+        
+        # Track which specific fields failed
+        failed_fields = []  # List of (field_name, error_reason) tuples
+        
+        # Categorize all errors from actions
+        error_categories = {
+            "validation": [],       # Form rejected our input
+            "not_found": [],        # Couldn't find expected elements
+            "hidden": [],           # Hidden elements, wrong page type
+            "network": [],          # Timeouts, connection problems
+            "captcha": [],          # CAPTCHA blocking
+            "selector": [],         # Invalid selectors (LLM hallucination)
+            "other": []
+        }
+        
+        for action in self.state.actions_taken:
+            if not action.success and action.error_message:
+                err = action.error_message.lower()
+                
+                # Track specific field failures for clear user messaging
+                if action.action_type == "fill_field":
+                    field_name = self._get_friendly_field_name(action)
+                    failed_fields.append((field_name, action.error_message))
+                
+                # Categorize the error
+                if any(kw in err for kw in ["validation", "invalid", "required", "please enter", "must be", "rejected"]):
+                    error_categories["validation"].append(action.error_message)
+                elif any(kw in err for kw in ["not found", "field not found", "button not found"]):
+                    error_categories["not_found"].append(action.error_message)
+                elif any(kw in err for kw in ["hidden", "not visible", "covered", "blocked by"]):
+                    error_categories["hidden"].append(action.error_message)
+                elif any(kw in err for kw in ["captcha", "recaptcha", "hcaptcha"]):
+                    error_categories["captcha"].append(action.error_message)
+                elif any(kw in err for kw in ["invalid selector", "could not locate"]):
+                    error_categories["selector"].append(action.error_message)
+                elif any(kw in err for kw in ["network", "connection", "fetch"]):
+                    error_categories["network"].append(action.error_message)
+                else:
+                    error_categories["other"].append(action.error_message)
+        
+        # Determine primary error - prioritize specific field failures
+        primary_category = "unknown"
+        primary_error = "Form submission failed"
+        
+        # Priority order for determining primary cause
+        if self.state.stuck_loop_detected and self.state.error_messages_seen:
+            most_common = max(self.state.error_messages_seen.items(), key=lambda x: x[1])
+            primary_category = "validation_loop"
+            primary_error = f"Form keeps rejecting input: '{most_common[0][:60]}'"
+        elif error_categories["captcha"]:
+            primary_category = "captcha"
+            primary_error = "CAPTCHA is blocking form submission"
+        elif failed_fields:
+            # Use the first field failure as the primary error - most user-friendly
+            first_failed_field, first_error = failed_fields[0]
+            if len(failed_fields) == 1:
+                primary_error = first_error
+            else:
+                # Multiple fields failed
+                field_names = [f[0] for f in failed_fields[:3]]
+                primary_error = f"{first_error} (also failed: {', '.join(field_names[1:])})"
+            
+            # Set category based on error type
+            if any(kw in first_error.lower() for kw in ["not found", "field not found"]):
+                primary_category = "not_found"
+            elif any(kw in first_error.lower() for kw in ["hidden", "covered"]):
+                primary_category = "hidden"
+            elif any(kw in first_error.lower() for kw in ["rejected", "validation", "invalid"]):
+                primary_category = "validation"
+            else:
+                primary_category = "field_error"
+        elif self.state.submit_attempts == 0 and len(self.state.fields_filled) > 0:
+            primary_category = "no_submit"
+            filled_types = self.state.get_filled_field_types()
+            if filled_types:
+                primary_error = f"Filled {', '.join(filled_types)} but could not find Submit button"
+            else:
+                primary_error = f"Filled {len(self.state.fields_filled)} field(s) but could not find Submit button"
+        elif error_categories["not_found"]:
+            primary_category = "not_found"
+            primary_error = error_categories["not_found"][0]
+        elif error_categories["hidden"]:
+            primary_category = "hidden"
+            primary_error = error_categories["hidden"][0]
+        elif error_categories["validation"]:
+            primary_category = "validation"
+            primary_error = error_categories["validation"][0]
+        elif error_categories["selector"]:
+            primary_category = "selector"
+            primary_error = "Could not locate form fields on this page"
+        elif error_categories["network"]:
+            primary_category = "network"
+            primary_error = "Network error while interacting with form"
+        elif self.state.form_submitted and not self.state.success:
+            primary_category = "no_confirmation"
+            primary_error = "Form was submitted but no success message was detected"
+        elif len(self.state.fields_filled) == 0:
+            primary_category = "no_fields"
+            # Try to identify which field we couldn't fill
+            if failed_fields:
+                first_failed = failed_fields[0][0]
+                primary_error = f"Could not fill any fields - first failure was {first_failed}"
+            else:
+                primary_error = "Could not find or fill any form fields"
+        
+        # Build list of all errors (deduplicated)
+        all_errors = []
+        seen_errors = set()
+        for category_errors in error_categories.values():
+            for err in category_errors:
+                err_key = err[:50].lower()  # Dedupe by first 50 chars
+                if err_key not in seen_errors:
+                    seen_errors.add(err_key)
+                    all_errors.append(err)
+        
+        return {
+            "primary_error": primary_error,
+            "primary_category": primary_category,
+            "failed_fields": failed_fields,  # List of (field_name, error) tuples
+            "error_categories": {k: v for k, v in error_categories.items() if v},
+            "all_errors": all_errors[:10],  # Limit to 10 errors
+            "fields_filled": list(self.state.fields_filled.keys()),
+            "field_types_filled": self.state.get_filled_field_types(),
+            "submit_attempts": self.state.submit_attempts,
+            "form_submitted": self.state.form_submitted,
+            "stuck_loop": self.state.stuck_loop_detected,
+            "captcha_attempted": self.state.captcha_attempted,
+            "captcha_solved": self.state.captcha_solved
+        }
+    
     async def execute_signup(self) -> Dict[str, Any]:
         """Execute the sign-up process using continuous reasoning loop."""
         slog.detail("🚀 Starting AI Agent reasoning loop...")
@@ -337,13 +630,15 @@ class AIAgentOrchestrator:
                     slog.detail_success(f"✅ Action succeeded: {next_action.action_type}")
                 else:
                     next_action.success = False
-                    next_action.error_message = action_result.get("error", "Unknown error")
+                    raw_error = action_result.get("error", "Unknown error")
+                    # Store humanized error message for better user feedback
+                    next_action.error_message = self._humanize_error(raw_error, next_action)
                     slog.detail_warning(f"⚠️ Action failed: {next_action.error_message}")
                     
                     # Provide hints for common errors (detailed only)
-                    if "hidden" in next_action.error_message.lower():
+                    if "hidden" in raw_error.lower():
                         slog.detail("   💡 Hint: Element is hidden. For checkboxes, try fill_field with field_type='checkbox'")
-                    elif "timeout" in next_action.error_message.lower():
+                    elif "timeout" in raw_error.lower() or "not found" in raw_error.lower():
                         slog.detail("   💡 Hint: Selector not found. Try different selector")
                 
                 # Track field type for fill_field actions to prevent refilling
@@ -530,31 +825,43 @@ class AIAgentOrchestrator:
             else:
                 slog.detail_warning(f"❌ Signup not completed - form submitted: {self.state.form_submitted}, fields: {len(self.state.fields_filled)}")
             
-            # Build detailed error list
-            errors = [a.error_message for a in self.state.actions_taken if not a.success and a.error_message]
+            # Build detailed failure summary with categorized errors
+            failure_summary = self._build_failure_summary()
             
-            # Add stuck loop info if detected
-            if self.state.stuck_loop_detected:
-                # Find the most common error message
-                if self.state.error_messages_seen:
-                    most_common_error = max(self.state.error_messages_seen.items(), key=lambda x: x[1])
-                    errors.insert(0, f"Stuck loop: '{most_common_error[0]}' appeared {most_common_error[1]} times")
-                else:
-                    errors.insert(0, "Stuck loop detected - repeated actions without progress")
+            # Build error list with primary error first
+            errors = []
+            if not final_success:
+                errors.append(failure_summary["primary_error"])
+                # Add other unique errors (excluding the primary)
+                for err in failure_summary["all_errors"]:
+                    if err != failure_summary["primary_error"] and err not in errors:
+                        errors.append(err)
             
             return {
                 "success": final_success,
                 "fields_filled": list(self.state.fields_filled.keys()),
+                "field_types_filled": self.state.get_filled_field_types(),
                 "actions": summary["actions"],
                 "errors": errors,
+                "error_category": failure_summary["primary_category"] if not final_success else None,
+                "error_details": failure_summary if not final_success else None,
                 "form_submitted": self.state.form_submitted,
                 "submit_attempts": self.state.submit_attempts,
-                "stuck_loop_detected": self.state.stuck_loop_detected
+                "stuck_loop_detected": self.state.stuck_loop_detected,
+                "captcha_attempted": self.state.captcha_attempted,
+                "captcha_solved": self.state.captcha_solved
             }
             
         except Exception as e:
             logger.error(f"❌ Agent error: {e}", exc_info=True)
-            return {"success": False, "fields_filled": [], "actions": [], "errors": [str(e)]}
+            return {
+                "success": False, 
+                "fields_filled": [], 
+                "actions": [], 
+                "errors": [f"Agent exception: {str(e)[:100]}"],
+                "error_category": "exception",
+                "error_details": {"primary_error": str(e), "primary_category": "exception"}
+            }
     
     def _should_use_vision(self, step: int, last_action_success: bool) -> bool:
         """Decide if vision should be used (expensive in tokens)."""

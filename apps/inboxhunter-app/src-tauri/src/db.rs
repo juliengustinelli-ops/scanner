@@ -5,6 +5,7 @@ use crate::commands::{ProcessedURL, ScrapedURL, ProcessedStats, ScrapedStats};
 pub fn init_database(db_path: &Path) -> Result<()> {
     let conn = Connection::open(db_path)?;
     
+    // Create tables if they don't exist
     conn.execute_batch(
         "
         -- Processed URLs: URLs where signup was attempted
@@ -15,6 +16,8 @@ pub fn init_database(db_path: &Path) -> Result<()> {
             status TEXT NOT NULL,
             fields_filled TEXT,
             error_message TEXT,
+            error_category TEXT,
+            details TEXT,
             processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         
@@ -36,6 +39,39 @@ pub fn init_database(db_path: &Path) -> Result<()> {
         "
     )?;
     
+    // Run migrations for existing databases - add new columns if they don't exist
+    migrate_database(&conn)?;
+    
+    Ok(())
+}
+
+fn migrate_database(conn: &Connection) -> Result<()> {
+    // Check if error_category column exists
+    let has_error_category: bool = conn
+        .prepare("SELECT error_category FROM processed_urls LIMIT 1")
+        .is_ok();
+    
+    if !has_error_category {
+        // Add error_category column
+        conn.execute("ALTER TABLE processed_urls ADD COLUMN error_category TEXT", [])?;
+    }
+    
+    // Check if details column exists
+    let has_details: bool = conn
+        .prepare("SELECT details FROM processed_urls LIMIT 1")
+        .is_ok();
+    
+    if !has_details {
+        // Add details column
+        conn.execute("ALTER TABLE processed_urls ADD COLUMN details TEXT", [])?;
+    }
+    
+    // Now create the index on error_category (only if column exists)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_processed_category ON processed_urls(error_category)",
+        []
+    )?;
+    
     Ok(())
 }
 
@@ -45,7 +81,7 @@ pub fn get_processed_urls(db_path: &str, limit: i32) -> Result<Vec<ProcessedURL>
     let conn = Connection::open(db_path)?;
     
     let mut stmt = conn.prepare(
-        "SELECT id, url, source, status, fields_filled, error_message, processed_at 
+        "SELECT id, url, source, status, fields_filled, error_message, error_category, details, processed_at 
          FROM processed_urls 
          ORDER BY processed_at DESC 
          LIMIT ?"
@@ -59,7 +95,9 @@ pub fn get_processed_urls(db_path: &str, limit: i32) -> Result<Vec<ProcessedURL>
             status: row.get(3)?,
             fields_filled: row.get(4)?,
             error_message: row.get(5)?,
-            processed_at: row.get(6)?,
+            error_category: row.get(6)?,
+            details: row.get(7)?,
+            processed_at: row.get(8)?,
         })
     })?;
     

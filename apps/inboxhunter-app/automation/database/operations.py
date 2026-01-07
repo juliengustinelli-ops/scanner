@@ -25,6 +25,7 @@ class ProcessedURL(Base):
     status = Column(String(20), nullable=False)  # 'success', 'failed', 'skipped'
     fields_filled = Column(Text)  # JSON array of fields that were filled
     error_message = Column(Text)  # Error details if failed / reason if skipped
+    error_category = Column(String(50))  # Error category: validation, captcha, not_found, etc.
     details = Column(Text)  # Additional info: signup type, form found, etc.
     processed_at = Column(DateTime, default=datetime.utcnow)
 
@@ -71,6 +72,14 @@ class DatabaseOperations:
                     conn.execute(text("ALTER TABLE processed_urls ADD COLUMN details TEXT"))
                     conn.commit()
                 logger.info("✅ Database migration complete")
+            
+            # Add 'error_category' column if missing
+            if 'error_category' not in columns:
+                logger.info("📦 Migrating database: Adding 'error_category' column to processed_urls...")
+                with self.engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE processed_urls ADD COLUMN error_category VARCHAR(50)"))
+                    conn.commit()
+                logger.info("✅ Database migration complete")
     
     # ==================== PROCESSED URLs ====================
     
@@ -85,7 +94,7 @@ class DatabaseOperations:
     
     def add_processed_url(self, url: str, source: str, status: str, 
                           fields_filled: List[str] = None, error_message: str = None,
-                          details: str = None) -> int:
+                          error_category: str = None, details: str = None) -> int:
         """Add a processed URL record."""
         session = self.Session()
         try:
@@ -96,6 +105,7 @@ class DatabaseOperations:
                 existing.status = status
                 existing.fields_filled = json.dumps(fields_filled or [])
                 existing.error_message = error_message
+                existing.error_category = error_category
                 existing.details = details
                 existing.processed_at = datetime.utcnow()
                 session.commit()
@@ -107,6 +117,7 @@ class DatabaseOperations:
                 status=status,
                 fields_filled=json.dumps(fields_filled or []),
                 error_message=error_message,
+                error_category=error_category,
                 details=details
             )
             session.add(record)
@@ -130,6 +141,7 @@ class DatabaseOperations:
                 "status": r.status,
                 "fields_filled": json.loads(r.fields_filled) if r.fields_filled else [],
                 "error_message": r.error_message,
+                "error_category": r.error_category,
                 "details": r.details,
                 "processed_at": r.processed_at.isoformat() if r.processed_at else None
             } for r in records]

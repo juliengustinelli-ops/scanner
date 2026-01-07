@@ -95,6 +95,8 @@ pub struct ProcessedURL {
     pub status: String,
     pub fields_filled: Option<String>,
     pub error_message: Option<String>,
+    pub error_category: Option<String>,
+    pub details: Option<String>,
     pub processed_at: String,
 }
 

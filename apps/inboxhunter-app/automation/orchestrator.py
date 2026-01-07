@@ -1142,6 +1142,7 @@ class InboxHunterBot:
                 self.stats["pages_skipped_load_error"] += 1
                 self._record_result(url, source, "skipped", [], 
                                    error_message=f"Page failed to load: {error_reason}",
+                                   error_category="load_error",
                                    details=f"Could not load page - {error_reason}")
                 return False
             
@@ -1154,6 +1155,7 @@ class InboxHunterBot:
                 self.stats["pages_skipped_app_store"] += 1
                 self._record_result(url, source, "skipped", [],
                                    error_message=f"App store URL: {matched_domain}",
+                                   error_category="app_store",
                                    details="URL leads directly to app download page")
                 return False
             
@@ -1166,6 +1168,7 @@ class InboxHunterBot:
                 self.stats["pages_skipped_login_only"] += 1
                 self._record_result(url, source, "skipped", [], 
                                    error_message=f"Login-only page: {analysis.reason}",
+                                   error_category="login_page",
                                    details="Page type: login, No signup form found")
                 return False
             
@@ -1175,6 +1178,7 @@ class InboxHunterBot:
                 self.stats["pages_skipped_no_form"] += 1
                 self._record_result(url, source, "skipped", [],
                                    error_message=f"Blog/article page: {analysis.reason}",
+                                   error_category="blog_article",
                                    details="Page type: blog/article, No signup form found")
                 return False
             
@@ -1197,6 +1201,7 @@ class InboxHunterBot:
                         self.stats["pages_skipped_app_store"] += 1
                         self._record_result(url, source, "skipped", [],
                                            error_message=f"App store redirect: {domain}",
+                                           error_category="app_store",
                                            details="Button click led to app download page")
                         return False
                 
@@ -1206,14 +1211,18 @@ class InboxHunterBot:
                     if not final_analysis.has_signup_form:
                         logger.warning(f"⏭️ Skipping page - NO SIGNUP FORM found after navigation attempts")
                         self.stats["pages_skipped_no_form"] += 1
-                        self._record_result(url, source, "skipped", [], "No signup form found after navigation")
+                        self._record_result(url, source, "skipped", [], 
+                                           error_message="No signup form found after navigation",
+                                           error_category="no_form")
                         return False
             
             # Skip if no signup form and not behind a button
             if not analysis.has_signup_form and not analysis.signup_behind_button:
                 logger.warning(f"⏭️ Skipping page - NO SIGNUP FORM: {analysis.reason}")
                 self.stats["pages_skipped_no_form"] += 1
-                self._record_result(url, source, "skipped", [], f"No signup form: {analysis.reason}")
+                self._record_result(url, source, "skipped", [], 
+                                   error_message=f"No signup form: {analysis.reason}",
+                                   error_category="no_form")
                 return False
             
             # Create AI Agent - pass the local page analysis to prevent LLM from contradicting it
@@ -1284,23 +1293,31 @@ class InboxHunterBot:
                     error_msg = result.get("errors", ["Skipped"])[0]
                     slog.url_skipped(f"Agent skipped: {skipped_reason}")
                     
-                    # Update stats based on reason
+                    # Determine error category for skipped pages
+                    skip_category = "skipped"
                     if "payment" in skipped_reason.lower():
                         self.stats.setdefault("pages_skipped_payment", 0)
                         self.stats["pages_skipped_payment"] += 1
-                    elif "login" in skipped_reason.lower():
+                        skip_category = "payment_required"
+                    elif "login" in skipped_reason.lower() or "registration" in skipped_reason.lower():
                         self.stats["pages_skipped_login_only"] += 1
+                        skip_category = "login_required"
+                    elif "unwanted" in skipped_reason.lower():
+                        self.stats["pages_skipped_no_form"] += 1
+                        skip_category = "unwanted_page"
                     else:
                         self.stats["pages_skipped_no_form"] += 1
                     
                     self._record_result(url, source, "skipped", [], 
                                        error_message=f"Skipped by Agent: {skipped_reason}",
+                                       error_category=skip_category,
                                        details=error_msg)
                     return False
 
                 # Record failure (only if not interrupted)
                 errors = result.get("errors", [])
                 error_msg = errors[0] if errors else "Form submission failed"  # Use first error as main message
+                error_category = result.get("error_category", "unknown")  # Get category from agent
                 fields = result.get("fields_filled", [])
                 
                 # Simple log: failure with reason
@@ -1311,16 +1328,26 @@ class InboxHunterBot:
                     slog.url_failed(short_error)
                 
                 # Build detailed failure info
-                details_parts = [f"Fields attempted: {len(fields)}"]
+                details_parts = [f"Category: {error_category}"]
+                details_parts.append(f"Fields filled: {len(fields)}")
+                field_types = result.get("field_types_filled", [])
+                if field_types:
+                    details_parts.append(f"Field types: {', '.join(field_types)}")
                 if result.get("stuck_loop_detected"):
-                    details_parts.append("Stuck in validation error loop")
+                    details_parts.append("Stuck in validation loop")
                 if result.get("submit_attempts", 0) > 0:
                     details_parts.append(f"Submit attempts: {result.get('submit_attempts')}")
+                if result.get("captcha_attempted"):
+                    captcha_status = "solved" if result.get("captcha_solved") else "failed"
+                    details_parts.append(f"CAPTCHA: {captcha_status}")
                 if len(errors) > 1:
                     details_parts.append(f"Total errors: {len(errors)}")
-                details = ", ".join(details_parts)
+                details = " | ".join(details_parts)
                 
-                self._record_result(url, source, "failed", fields, error_message=error_msg, details=details)
+                self._record_result(url, source, "failed", fields, 
+                                   error_message=error_msg, 
+                                   error_category=error_category,
+                                   details=details)
                 return False
                 
         except Exception as e:
@@ -1332,12 +1359,13 @@ class InboxHunterBot:
             
             logger.error(f"Error processing URL: {e}", exc_info=True)
             self._record_result(url, source, "failed", [], 
-                               error_message=str(e),
-                               details=f"Exception during processing: {type(e).__name__}")
+                               error_message=f"Exception: {str(e)[:150]}",
+                               error_category="exception",
+                               details=f"Exception type: {type(e).__name__}")
             return False
     
     def _record_result(self, url: str, source: str, status: str, fields_filled: list, 
-                       error_message: str = None, details: str = None):
+                       error_message: str = None, error_category: str = None, details: str = None):
         """Record processing result in database."""
         self.db.add_processed_url(
             url=url,
@@ -1345,6 +1373,7 @@ class InboxHunterBot:
             status=status,
             fields_filled=fields_filled,
             error_message=error_message,
+            error_category=error_category,
             details=details
         )
         
