@@ -633,7 +633,7 @@ class AIAgentOrchestrator:
                 if not next_action:
                     llm_error = getattr(self, 'last_llm_error', 'Unknown reason')
                     logger.error(f"❌ LLM failed to provide action: {llm_error}")
-                    slog.simple(f"❌ LLM error: {llm_error}")
+                    slog.detail_warning(f"❌ LLM error: {llm_error}")
                     # Store error for result reporting
                     self.state.llm_failure_reason = llm_error
                     break
