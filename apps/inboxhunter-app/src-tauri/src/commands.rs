@@ -60,6 +60,8 @@ pub struct Settings {
     pub max_delay: i32,
     #[serde(rename = "llmModel")]
     pub llm_model: String,
+    #[serde(rename = "batchPlanning")]
+    pub batch_planning: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -425,25 +427,41 @@ fn find_dev_python(automation_path: &PathBuf) -> Option<String> {
         // Pattern: .../src-tauri/target/release/bundle/macos/App.app/Contents/MacOS/app
         let path_str = exe.to_string_lossy();
         
-        if path_str.contains("target/release/bundle") || path_str.contains("target/debug") {
+        // Check for both forward and backslashes (Windows uses backslashes)
+        let is_build_path = path_str.contains("target/release/bundle")
+            || path_str.contains("target\\release\\bundle")
+            || path_str.contains("target/debug")
+            || path_str.contains("target\\debug");
+
+        if is_build_path {
             // We're running from a build - try to find source automation venv
-            if let Some(target_pos) = path_str.find("/target/") {
-                let project_root = &path_str[..target_pos];
-                let source_automation = PathBuf::from(project_root).join("automation");
-                
-                println!("   Checking source project: {:?}", source_automation);
-                
-                let source_venv_paths = [
-                    source_automation.join("venv").join("bin").join("python"),
-                    source_automation.join(".venv").join("bin").join("python"),
-                    source_automation.join("venv").join("Scripts").join("python.exe"),
-                    source_automation.join(".venv").join("Scripts").join("python.exe"),
-                ];
-                
-                for venv_python in &source_venv_paths {
-                    if venv_python.exists() {
-                        println!("   ✅ Found source project venv: {:?}", venv_python);
-                        return Some(venv_python.to_string_lossy().to_string());
+            // Look for /target/ or \target\ depending on platform
+            let target_pos = path_str.find("/target/")
+                .or_else(|| path_str.find("\\target\\"));
+
+            if let Some(target_pos) = target_pos {
+                // path_str[..target_pos] gives us .../src-tauri
+                // We need to go up one more level to get the actual project root
+                let src_tauri_path = PathBuf::from(&path_str[..target_pos]);
+                let project_root = src_tauri_path.parent(); // Go up from src-tauri to project root
+
+                if let Some(project_root) = project_root {
+                    let source_automation = project_root.join("automation");
+
+                    println!("   Checking source project: {:?}", source_automation);
+
+                    let source_venv_paths = [
+                        source_automation.join("venv").join("bin").join("python"),
+                        source_automation.join(".venv").join("bin").join("python"),
+                        source_automation.join("venv").join("Scripts").join("python.exe"),
+                        source_automation.join(".venv").join("Scripts").join("python.exe"),
+                    ];
+
+                    for venv_python in &source_venv_paths {
+                        if venv_python.exists() {
+                            println!("   ✅ Found source project venv: {:?}", venv_python);
+                            return Some(venv_python.to_string_lossy().to_string());
+                        }
                     }
                 }
             }

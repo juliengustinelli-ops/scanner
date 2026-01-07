@@ -26,6 +26,7 @@ interface Settings {
   minDelay: number
   maxDelay: number
   llmModel: string
+  batchPlanning: boolean  // Use batch planning for faster execution
 }
 
 interface Stats {
@@ -128,6 +129,7 @@ const initialSettings: Settings = {
   minDelay: 10,
   maxDelay: 30,
   llmModel: 'gpt-4o',
+  batchPlanning: false,  // Disabled by default, can be enabled for faster execution
 }
 
 const initialStats: Stats = {

@@ -76,7 +76,10 @@
         "icons/icon.ico"
       ],
       "resources": [
-        "../automation"
+        "../automation/*.py",
+        "../automation/database",
+        "../automation/scrapers",
+        "../automation/utils"
       ],
       "shortDescription": "AI-powered lead generation platform",
       "longDescription": "InboxHunter is an AI-powered automation platform that helps you generate leads by automatically signing up for email lists on landing pages. Features GPT-4o Vision for intelligent form detection and filling.",
