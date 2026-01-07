@@ -308,6 +308,9 @@ class AIAgentOrchestrator:
     def _build_failure_summary(self) -> Dict[str, Any]:
         """Build a detailed, user-friendly failure summary with categorized errors."""
         
+        # Check for LLM failure first
+        llm_failure = getattr(self.state, 'llm_failure_reason', None)
+        
         # Track which specific fields failed
         failed_fields = []  # List of (field_name, error_reason) tuples
         
@@ -319,6 +322,7 @@ class AIAgentOrchestrator:
             "network": [],          # Timeouts, connection problems
             "captcha": [],          # CAPTCHA blocking
             "selector": [],         # Invalid selectors (LLM hallucination)
+            "llm": [],              # LLM/API errors
             "other": []
         }
         
@@ -352,7 +356,22 @@ class AIAgentOrchestrator:
         primary_error = "Form submission failed"
         
         # Priority order for determining primary cause
-        if self.state.stuck_loop_detected and self.state.error_messages_seen:
+        # Check LLM failure first - this is a critical error
+        if llm_failure:
+            primary_category = "llm_error"
+            # Make LLM errors more user-friendly
+            if "rate_limit" in llm_failure.lower():
+                primary_error = "OpenAI rate limit reached - please wait a moment and try again"
+            elif "api key" in llm_failure.lower():
+                primary_error = "OpenAI API key error - please check your API key in Settings"
+            elif "timeout" in llm_failure.lower():
+                primary_error = "OpenAI request timed out - the AI service may be slow"
+            elif "network" in llm_failure.lower():
+                primary_error = "Network error connecting to OpenAI"
+            else:
+                primary_error = f"AI analysis failed: {llm_failure[:100]}"
+            error_categories["llm"].append(primary_error)
+        elif self.state.stuck_loop_detected and self.state.error_messages_seen:
             most_common = max(self.state.error_messages_seen.items(), key=lambda x: x[1])
             primary_category = "validation_loop"
             primary_error = f"Form keeps rejecting input: '{most_common[0][:60]}'"
@@ -612,7 +631,11 @@ class AIAgentOrchestrator:
                 next_action = await self._reason_next_action(page_state)
                 
                 if not next_action:
-                    logger.error("❌ LLM failed to provide action")
+                    llm_error = getattr(self, 'last_llm_error', 'Unknown reason')
+                    logger.error(f"❌ LLM failed to provide action: {llm_error}")
+                    slog.simple(f"❌ LLM error: {llm_error}")
+                    # Store error for result reporting
+                    self.state.llm_failure_reason = llm_error
                     break
                 
                 # Execute action
@@ -1534,6 +1557,8 @@ class AIAgentOrchestrator:
             
         except Exception as e:
             logger.error(f"Reasoning error: {e}")
+            # Store the error so it can be reported in results
+            self.last_llm_error = str(e)
             return None
     
     def _build_reasoning_context(self, page_state: Dict[str, Any]) -> Dict[str, Any]:
