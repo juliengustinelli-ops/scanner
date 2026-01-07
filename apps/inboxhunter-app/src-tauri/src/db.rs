@@ -131,6 +131,32 @@ pub fn clear_processed_urls(db_path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Reset failed URLs so they can be retried
+/// Returns the number of URLs reset
+pub fn retry_failed_urls(db_path: &str) -> Result<usize> {
+    let conn = Connection::open(db_path)?;
+    let count = conn.execute("DELETE FROM processed_urls WHERE status = 'failed'", [])?;
+    Ok(count)
+}
+
+/// Reset a specific URL by ID so it can be retried
+pub fn retry_url_by_id(db_path: &str, id: i32) -> Result<()> {
+    let conn = Connection::open(db_path)?;
+    conn.execute("DELETE FROM processed_urls WHERE id = ?", [id])?;
+    Ok(())
+}
+
+/// Get count of failed URLs
+pub fn get_failed_count(db_path: &str) -> Result<i32> {
+    let conn = Connection::open(db_path)?;
+    let count: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM processed_urls WHERE status = 'failed'",
+        [],
+        |row| row.get(0)
+    )?;
+    Ok(count)
+}
+
 pub fn export_processed_csv(db_path: &str) -> Result<String> {
     let conn = Connection::open(db_path)?;
     

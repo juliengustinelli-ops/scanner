@@ -48,6 +48,10 @@ fn main() {
             commands::update_scraped_url_status,
             commands::clear_scraped_urls,
             commands::export_scraped_csv,
+            // Retry
+            commands::retry_failed_urls,
+            commands::retry_url_by_id,
+            commands::get_failed_count,
             // Settings
             commands::save_settings,
             commands::load_settings,

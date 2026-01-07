@@ -15,6 +15,7 @@ from loguru import logger
 from config import BotConfig
 from browser import BrowserAutomation
 from agent_orchestrator import AIAgentOrchestrator
+from llm_analyzer import LLMPageAnalyzer
 from scrapers.meta_ads import MetaAdsScraper
 from scrapers.csv_parser import CSVParser
 from database.operations import DatabaseOperations
@@ -172,7 +173,10 @@ class InboxHunterBot:
         logger.info("🚀 Starting bot...")
         slog.detail(f"📂 Source: {self.config.settings.data_source}")
         slog.detail(f"🎯 Max signups: {self.config.settings.max_signups}")
-        
+
+        # Reset API cost tracking for this session
+        LLMPageAnalyzer.reset_cost_tracking()
+
         start_time = time.time()
         
         try:
@@ -257,14 +261,14 @@ class InboxHunterBot:
                     # Failure logged by _process_url
 
                 # No delay between URLs - move immediately to next
-            
-            # Print summary
-            elapsed_time = time.time() - start_time
-            self._print_summary(elapsed_time)
-            
+
         except Exception as e:
             logger.error(f"❌ Fatal error: {e}")
             raise
+        finally:
+            # Always print summary, even on stop or error
+            elapsed_time = time.time() - start_time
+            self._print_summary(elapsed_time)
     
     async def _get_urls(self) -> List[Dict[str, Any]]:
         """Get URLs from configured source."""
@@ -1418,7 +1422,21 @@ class InboxHunterBot:
         if self.stats['total_attempts'] > 0:
             rate = (successful / self.stats['total_attempts']) * 100
             slog.detail(f"📈 Success rate: {rate:.1f}%")
-        
+
+        # API Cost Summary
+        cost_summary = LLMPageAnalyzer.get_cost_summary()
+        if cost_summary['total_calls'] > 0:
+            slog.detail("")
+            slog.detail("💰 API COSTS")
+            slog.detail("-" * 40)
+            for model, stats in cost_summary['by_model'].items():
+                tokens = stats['input_tokens'] + stats['output_tokens']
+                slog.detail(f"   {model}: ${stats['cost']:.4f} ({tokens:,} tokens)")
+            slog.detail(f"   Total: ${cost_summary['total_cost']:.4f} ({cost_summary['total_calls']} calls)")
+
+            # Also show in simple log (always visible)
+            logger.info(f"💰 API Cost: ${cost_summary['total_cost']:.4f} ({cost_summary['total_calls']} calls)")
+
         slog.detail("="*60)
     
     async def cleanup(self):

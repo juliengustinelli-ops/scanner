@@ -869,6 +869,27 @@ pub async fn export_scraped_csv(state: State<'_, AppState>) -> Result<String, St
 }
 
 #[command]
+pub async fn retry_failed_urls(state: State<'_, AppState>) -> Result<usize, String> {
+    let db_path = state.db_path.lock().map_err(|e| e.to_string())?;
+    let count = db::retry_failed_urls(&db_path).map_err(|e| e.to_string())?;
+    Ok(count)
+}
+
+#[command]
+pub async fn retry_url_by_id(state: State<'_, AppState>, id: i32) -> Result<String, String> {
+    let db_path = state.db_path.lock().map_err(|e| e.to_string())?;
+    db::retry_url_by_id(&db_path, id).map_err(|e| e.to_string())?;
+    Ok("URL reset for retry".to_string())
+}
+
+#[command]
+pub async fn get_failed_count(state: State<'_, AppState>) -> Result<i32, String> {
+    let db_path = state.db_path.lock().map_err(|e| e.to_string())?;
+    let count = db::get_failed_count(&db_path).map_err(|e| e.to_string())?;
+    Ok(count)
+}
+
+#[command]
 pub async fn save_settings(
     config: BotConfig,
     app: AppHandle,

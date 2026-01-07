@@ -1,14 +1,15 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
-import { 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
+import {
+  CheckCircle2,
+  XCircle,
+  Clock,
   Terminal,
   ExternalLink,
   Loader2,
   RefreshCw,
   TrendingUp,
-  AlertCircle
+  AlertCircle,
+  RotateCcw
 } from 'lucide-react'
 import { useAppStore } from '../hooks/useAppStore'
 import { useTheme } from '../hooks/useTheme'
@@ -26,13 +27,37 @@ interface ProcessedStats {
 }
 
 export function Dashboard({ onViewLogs }: DashboardProps) {
-  const { isRunning, logs } = useAppStore()
+  const { isRunning, logs, startBot } = useAppStore()
   const { resolvedTheme } = useTheme()
   const logContainerRef = useRef<HTMLDivElement>(null)
   const [dbStats, setDbStats] = useState<ProcessedStats>({ total: 0, successful: 0, failed: 0, skipped: 0 })
   const [refreshing, setRefreshing] = useState(false)
+  const [retrying, setRetrying] = useState(false)
 
   const isDark = resolvedTheme === 'dark'
+
+  // Retry failed URLs
+  const handleRetryFailed = async () => {
+    if (isRunning || dbStats.failed === 0) return
+
+    try {
+      setRetrying(true)
+      // @ts-ignore
+      if (window.__TAURI__) {
+        const { invoke } = await import('@tauri-apps/api/tauri')
+        const count = await invoke('retry_failed_urls') as number
+        if (count > 0) {
+          // Refresh stats and start bot
+          await fetchStats()
+          startBot()
+        }
+      }
+    } catch (error) {
+      console.error('Failed to retry URLs:', error)
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   // Fetch stats from database
   const fetchStats = useCallback(async () => {
@@ -157,15 +182,30 @@ export function Dashboard({ onViewLogs }: DashboardProps) {
           </div>
         </div>
 
-        {/* Refresh */}
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          title="Refresh stats from database"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Retry Failed Button - show when not running and has failures */}
+          {!isRunning && dbStats.failed > 0 && (
+            <button
+              onClick={handleRetryFailed}
+              disabled={retrying}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 text-red-600 dark:text-red-400 hover:bg-red-500/30 transition-colors text-sm font-medium"
+              title={`Retry ${dbStats.failed} failed URL${dbStats.failed > 1 ? 's' : ''}`}
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${retrying ? 'animate-spin' : ''}`} />
+              Retry {dbStats.failed} Failed
+            </button>
+          )}
+
+          {/* Refresh */}
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            title="Refresh stats from database"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* Live Console - Main Focus */}

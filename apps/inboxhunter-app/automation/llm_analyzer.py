@@ -14,13 +14,65 @@ class LLMPageAnalyzer:
     """
     Analyze web pages using LLM to determine form filling strategy.
     """
-    
-    def __init__(self, page: Page, credentials: Dict[str, str], 
+
+    # Pricing per 1M tokens (as of Jan 2025)
+    MODEL_PRICING = {
+        "gpt-4o": {"input": 2.50, "output": 10.00},
+        "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+        "gpt-4-turbo": {"input": 10.00, "output": 30.00},
+    }
+
+    # Class-level cost tracking (shared across instances in a session)
+    _session_costs = {}  # {model: {"input_tokens": 0, "output_tokens": 0, "cost": 0.0}}
+    _total_calls = 0
+
+    @classmethod
+    def reset_cost_tracking(cls):
+        """Reset cost tracking for a new session."""
+        cls._session_costs = {}
+        cls._total_calls = 0
+
+    @classmethod
+    def get_cost_summary(cls) -> Dict[str, Any]:
+        """Get cumulative cost summary by model."""
+        total_cost = sum(m.get("cost", 0) for m in cls._session_costs.values())
+        return {
+            "by_model": cls._session_costs.copy(),
+            "total_cost": total_cost,
+            "total_calls": cls._total_calls
+        }
+
+    def __init__(self, page: Page, credentials: Dict[str, str],
                  llm_provider: str = "openai", llm_config: Optional[Dict[str, Any]] = None):
         self.page = page
         self.credentials = credentials
         self.llm_provider = llm_provider
         self.llm_config = llm_config or {}
+
+    def _track_cost(self, model: str, prompt_tokens: int, completion_tokens: int):
+        """Track API cost for this call."""
+        # Get pricing for model (default to gpt-4o-mini if unknown)
+        pricing = self.MODEL_PRICING.get(model, self.MODEL_PRICING["gpt-4o-mini"])
+
+        # Calculate cost (pricing is per 1M tokens)
+        input_cost = (prompt_tokens / 1_000_000) * pricing["input"]
+        output_cost = (completion_tokens / 1_000_000) * pricing["output"]
+        call_cost = input_cost + output_cost
+
+        # Update session totals
+        if model not in self._session_costs:
+            self._session_costs[model] = {"input_tokens": 0, "output_tokens": 0, "cost": 0.0}
+
+        self._session_costs[model]["input_tokens"] += prompt_tokens
+        self._session_costs[model]["output_tokens"] += completion_tokens
+        self._session_costs[model]["cost"] += call_cost
+        self.__class__._total_calls += 1
+
+        # Get cumulative total
+        total_cost = sum(m.get("cost", 0) for m in self._session_costs.values())
+
+        # Log the cost (always visible)
+        logger.info(f"💰 ${call_cost:.4f} ({prompt_tokens}+{completion_tokens} tok) | Total: ${total_cost:.4f}")
     
     async def _extract_page_info(self) -> Dict[str, Any]:
         """Extract relevant information from the page, including HTML and visibility status."""
@@ -914,7 +966,16 @@ Examples:
                     
                     if 'choices' not in result or not result['choices']:
                         raise Exception("OpenAI returned no choices")
-                    
+
+                    # Track API cost from usage data
+                    if 'usage' in result:
+                        usage = result['usage']
+                        self._track_cost(
+                            model=model,
+                            prompt_tokens=usage.get('prompt_tokens', 0),
+                            completion_tokens=usage.get('completion_tokens', 0)
+                        )
+
                     content = result['choices'][0].get('message', {}).get('content')
                     
                     if content is None:

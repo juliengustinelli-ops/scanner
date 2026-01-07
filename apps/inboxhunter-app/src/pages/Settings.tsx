@@ -1223,27 +1223,6 @@ export function SettingsPage() {
               </button>
             </div>
 
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium text-foreground flex items-center gap-2">
-                  Batch Planning
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
-                    Experimental
-                  </span>
-                </div>
-                <div className="text-sm text-muted-foreground">Plan all form actions at once (faster, fewer API calls)</div>
-              </div>
-              <button
-                onClick={() => updateDraftSettings({ batchPlanning: !draftSettings.batchPlanning })}
-                className={`relative w-12 h-6 rounded-full transition-colors ${
-                  draftSettings.batchPlanning ? 'bg-primary' : 'bg-muted'
-                }`}
-              >
-                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                  draftSettings.batchPlanning ? 'translate-x-7' : 'translate-x-1'
-                }`} />
-              </button>
-            </div>
           </div>
         )}
 
