@@ -104,8 +104,10 @@ export function Dashboard({ onViewLogs }: DashboardProps) {
     }
   }
 
-  const successRate = dbStats.total > 0 
-    ? Math.round((dbStats.successful / dbStats.total) * 100) 
+  // Success rate = successful / (successful + failed) - excludes skipped
+  const attempted = dbStats.successful + dbStats.failed
+  const successRate = attempted > 0
+    ? Math.round((dbStats.successful / attempted) * 100)
     : 0
 
   return (

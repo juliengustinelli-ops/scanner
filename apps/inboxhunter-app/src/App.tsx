@@ -691,7 +691,7 @@ function App() {
                   <BarChart3 className="w-4 h-4" />
                   Quick Stats
                 </div>
-                <button 
+                <button
                   onClick={handleRefreshStats}
                   className="p-1 rounded hover:bg-muted transition-colors"
                   title="Refresh stats"
@@ -699,6 +699,17 @@ function App() {
                   <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
                 </button>
               </div>
+              {/* Success Rate - prominent at top */}
+              {(() => {
+                const attempted = processedStats.successful + processedStats.failed
+                const successRate = attempted > 0 ? Math.round((processedStats.successful / attempted) * 100) : 0
+                return (
+                  <div className="flex justify-between items-center mb-3 pb-2 border-b border-border">
+                    <span className="text-cyan-600 dark:text-cyan-400 font-medium">Success Rate</span>
+                    <span className="font-bold text-lg text-cyan-600 dark:text-cyan-400">{successRate}%</span>
+                  </div>
+                )
+              })()}
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Processed</span>
