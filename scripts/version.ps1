@@ -8,6 +8,13 @@ param(
     [string]$NewVersion
 )
 
+# Get repo root (parent of scripts folder)
+$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = Split-Path -Parent $scriptPath
+
+# Change to repo root for git commands
+Push-Location $repoRoot
+
 # Colors
 function Write-Color {
     param([string]$Text, [string]$Color = "White")
@@ -15,7 +22,8 @@ function Write-Color {
 }
 
 # Get current version from tauri.conf.json
-$tauriConfig = Get-Content "apps/inboxhunter-app/src-tauri/tauri.conf.json" | ConvertFrom-Json
+$tauriConfigPath = Join-Path $repoRoot "apps/inboxhunter-app/src-tauri/tauri.conf.json"
+$tauriConfig = Get-Content $tauriConfigPath | ConvertFrom-Json
 $currentVersion = $tauriConfig.package.version
 
 # Get latest tag
@@ -77,19 +85,19 @@ if ($Command -eq "release") {
     Write-Color "Updating version to $NewVersion..." "Yellow"
 
     # Update tauri.conf.json
-    $tauriConfigPath = "apps/inboxhunter-app/src-tauri/tauri.conf.json"
-    $tauriContent = Get-Content $tauriConfigPath -Raw
+    $tauriPath = Join-Path $repoRoot "apps/inboxhunter-app/src-tauri/tauri.conf.json"
+    $tauriContent = Get-Content $tauriPath -Raw
     $tauriContent = $tauriContent -replace "`"version`": `"$currentVersion`"", "`"version`": `"$NewVersion`""
-    Set-Content $tauriConfigPath $tauriContent -NoNewline
+    Set-Content $tauriPath $tauriContent -NoNewline
 
     # Update package.json
-    $packagePath = "apps/inboxhunter-app/package.json"
+    $packagePath = Join-Path $repoRoot "apps/inboxhunter-app/package.json"
     $packageContent = Get-Content $packagePath -Raw
     $packageContent = $packageContent -replace "`"version`": `"$currentVersion`"", "`"version`": `"$NewVersion`""
     Set-Content $packagePath $packageContent -NoNewline
 
     # Update Cargo.toml
-    $cargoPath = "apps/inboxhunter-app/src-tauri/Cargo.toml"
+    $cargoPath = Join-Path $repoRoot "apps/inboxhunter-app/src-tauri/Cargo.toml"
     $cargoContent = Get-Content $cargoPath -Raw
     $cargoContent = $cargoContent -replace "version = `"$currentVersion`"", "version = `"$NewVersion`""
     Set-Content $cargoPath $cargoContent -NoNewline
@@ -108,3 +116,6 @@ if ($Command -eq "release") {
     Write-Host "  git push origin main --tags"
     Write-Host ""
 }
+
+# Restore original directory
+Pop-Location
