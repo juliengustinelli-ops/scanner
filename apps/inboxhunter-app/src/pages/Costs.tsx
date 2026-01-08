@@ -8,7 +8,6 @@ import {
   Hash,
   Clock
 } from 'lucide-react'
-import { useTheme } from '../hooks/useTheme'
 
 interface ModelCostStats {
   input_tokens: number
@@ -37,9 +36,6 @@ interface ApiSession {
 }
 
 export function CostsPage() {
-  const { resolvedTheme } = useTheme()
-  const isDark = resolvedTheme === 'dark'
-
   const [summary, setSummary] = useState<ApiCostSummary | null>(null)
   const [sessions, setSessions] = useState<ApiSession[]>([])
   const [loading, setLoading] = useState(true)
