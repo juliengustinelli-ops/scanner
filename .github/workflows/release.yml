@@ -237,25 +237,6 @@ jobs:
           owner: polajenko
           repositories: inbox-hunter
 
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-build
-          path: artifacts/windows
-
-      - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-build
-          path: artifacts/linux
-
-      - name: Download updater manifest
-        uses: actions/download-artifact@v4
-        with:
-          name: updater-manifest
-          path: artifacts
-        continue-on-error: true
-
       - name: Get version from tag
         id: version
         run: |
@@ -267,8 +248,37 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
-      - name: List artifacts
-        run: find artifacts -type f | head -50
+      - name: Download release assets from private repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p artifacts
+          cd artifacts
+
+          # Download all release assets from private repo
+          gh release download "v${{ steps.version.outputs.version }}" \
+            --repo ${{ github.repository }} \
+            --pattern "*.msi" \
+            --pattern "*.exe" \
+            --pattern "*.deb" \
+            --pattern "*.AppImage" \
+            --pattern "*.tar.gz" \
+            --pattern "*.zip" \
+            --pattern "latest.json" \
+            --clobber
+
+          echo "Downloaded files:"
+          ls -la
+
+      - name: Update URLs in latest.json for public repo
+        run: |
+          cd artifacts
+          if [ -f latest.json ]; then
+            # Replace private repo URL with public repo URL
+            sed -i 's|${{ github.repository }}|polajenko/inbox-hunter|g' latest.json
+            echo "Updated latest.json:"
+            cat latest.json
+          fi
 
       - name: Create release on public repo
         uses: softprops/action-gh-release@v1
@@ -280,11 +290,7 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            artifacts/**/*.msi
-            artifacts/**/*.exe
-            artifacts/**/*.deb
-            artifacts/**/*.AppImage
-            artifacts/latest.json
+            artifacts/*
           body: |
             ## InboxHunter v${{ steps.version.outputs.version }}
 
