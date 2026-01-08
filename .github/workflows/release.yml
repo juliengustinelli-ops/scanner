@@ -309,15 +309,16 @@ jobs:
           mkdir -p artifacts
           cd artifacts
 
-          # Download all release assets from private repo
+          # Download binary release assets from private repo (exclude source archives)
           gh release download "v${{ steps.version.outputs.version }}" \
             --repo ${{ github.repository }} \
             --pattern "*.msi" \
             --pattern "*.exe" \
             --pattern "*.deb" \
             --pattern "*.AppImage" \
-            --pattern "*.tar.gz" \
-            --pattern "*.zip" \
+            --pattern "*AppImage*.tar.gz" \
+            --pattern "*msi*.zip" \
+            --pattern "*nsis*.zip" \
             --pattern "latest.json" \
             --clobber
 
