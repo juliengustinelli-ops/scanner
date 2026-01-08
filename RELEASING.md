@@ -6,6 +6,21 @@ This document explains how to release new versions of InboxHunter.
 
 Use the version helper script:
 
+### Windows (PowerShell)
+
+```powershell
+# 1. Check current version and see suggestions
+.\scripts\version.ps1
+
+# 2. Create a release (bumps version, commits, and tags)
+.\scripts\version.ps1 release 1.2.11
+
+# 3. Push to trigger the build
+git push origin main --tags
+```
+
+### macOS/Linux (Bash)
+
 ```bash
 # 1. Check current version and see suggestions
 ./scripts/version.sh
