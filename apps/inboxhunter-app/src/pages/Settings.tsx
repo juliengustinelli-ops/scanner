@@ -261,7 +261,7 @@ export function SettingsPage() {
   }
 
   // Current app version from package
-  const APP_VERSION = '1.2.6'
+  const APP_VERSION = '1.2.7'
 
   // Mark field as touched when user interacts
   const handleBlur = (field: string) => {
