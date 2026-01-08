@@ -17,7 +17,7 @@
       "endpoints": [
         "https://inboxhunter-releases.s3.eu-north-1.amazonaws.com/releases/latest/update.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIyRDgyRUUwMjgyQ0REMUEKUldRYTNTd280QzdZc2t4MmFTK1FzTEE4eWxoM0h2YzRIZTJYdVVhblYrL3VYMld1bTgvK28vM0IK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVFN0NBNzNERDdGNzQxQzAKUldUQVFmZlhQYWQ4WGxxSHZjUVgvSVFqbndOTU9EYXNTV1RYSnUzZ2labm0rNCtDamtHUXdLVTMK"
     },
     "allowlist": {
       "all": false,
@@ -74,6 +74,9 @@
         "icons/128x128@2x.png",
         "icons/icon.icns",
         "icons/icon.ico"
+      ],
+      "externalBin": [
+        "binaries/inboxhunter-automation"
       ],
       "resources": [
         "../automation/*.py",
