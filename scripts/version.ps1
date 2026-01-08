@@ -60,6 +60,13 @@ Write-Host "  Minor: " -NoNewline; Write-Color $nextMinor "Green" -NoNewline; Wr
 Write-Host "  Major: " -NoNewline; Write-Color $nextMajor "Green" -NoNewline; Write-Host "  (breaking changes)"
 Write-Host ""
 
+# Show next command if not running release
+if ($Command -ne "release") {
+    Write-Color "To create a release, run:" "Cyan"
+    Write-Host "  .\scripts\version.ps1 release $nextPatch"
+    Write-Host ""
+}
+
 # If release command provided
 if ($Command -eq "release") {
     if (-not $NewVersion) {
