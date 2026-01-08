@@ -80,7 +80,25 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Get Playwright version
+        id: playwright-version
+        working-directory: apps/inboxhunter-app/automation
+        run: |
+          PLAYWRIGHT_VERSION=$(pip show playwright | grep Version | cut -d' ' -f2)
+          echo "version=$PLAYWRIGHT_VERSION" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/AppData/Local/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
       - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: apps/inboxhunter-app/automation
         run: python -m playwright install chromium
 
