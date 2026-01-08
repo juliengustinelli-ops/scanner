@@ -4,12 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release (e.g., 1.2.5)'
-        required: true
-        type: string
 
 env:
   APP_NAME: InboxHunter
@@ -25,11 +19,7 @@ jobs:
       - name: Get version from tag
         id: version
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          fi
+          VERSION="${GITHUB_REF#refs/tags/v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Checking version: $VERSION"
 
