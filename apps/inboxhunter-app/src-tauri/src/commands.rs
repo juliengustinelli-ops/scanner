@@ -119,7 +119,7 @@ pub struct ApiSession {
     pub model: String,
     pub input_tokens: i64,
     pub output_tokens: i64,
-    pub cost: String,
+    pub cost: f64,
     pub api_calls: i64,
 }
 

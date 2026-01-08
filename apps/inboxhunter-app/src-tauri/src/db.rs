@@ -323,13 +323,14 @@ pub fn get_api_sessions(db_path: &str, limit: i32) -> Result<Vec<ApiSession>> {
     )?;
 
     let rows = stmt.query_map([limit], |row| {
+        let cost_str: String = row.get(5)?;
         Ok(ApiSession {
             id: row.get(0)?,
             session_start: row.get(1)?,
             model: row.get(2)?,
             input_tokens: row.get(3)?,
             output_tokens: row.get(4)?,
-            cost: row.get(5)?,
+            cost: cost_str.parse::<f64>().unwrap_or(0.0),
             api_calls: row.get(6)?,
         })
     })?;

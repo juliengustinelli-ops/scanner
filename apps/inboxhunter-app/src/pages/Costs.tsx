@@ -51,12 +51,25 @@ export function CostsPage() {
       // @ts-ignore
       if (window.__TAURI__) {
         const { invoke } = await import('@tauri-apps/api/tauri')
-        const [summaryData, sessionsData] = await Promise.all([
-          invoke('get_api_cost_summary') as Promise<ApiCostSummary>,
-          invoke('get_api_sessions', { limit: 50 }) as Promise<ApiSession[]>
-        ])
-        setSummary(summaryData)
-        setSessions(sessionsData)
+        try {
+          const [summaryData, sessionsData] = await Promise.all([
+            invoke('get_api_cost_summary') as Promise<ApiCostSummary>,
+            invoke('get_api_sessions', { limit: 50 }) as Promise<ApiSession[]>
+          ])
+          setSummary(summaryData)
+          setSessions(sessionsData)
+        } catch (invokeError) {
+          // Table might not exist yet - show empty state
+          console.log('Cost data not available yet:', invokeError)
+          setSummary({
+            by_model: {},
+            total_cost: 0,
+            total_calls: 0,
+            total_tokens: 0,
+            session_count: 0
+          })
+          setSessions([])
+        }
       }
     } catch (error) {
       console.error('Failed to fetch cost data:', error)
