@@ -212,3 +212,85 @@ jobs:
           path: |
             apps/inboxhunter-app/src-tauri/target/release/bundle/deb/*.deb
             apps/inboxhunter-app/src-tauri/target/release/bundle/appimage/*.AppImage
+
+      # Upload latest.json for the updater
+      - name: Upload updater manifest
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-manifest
+          path: apps/inboxhunter-app/src-tauri/target/release/bundle/msi/latest.json
+          if-no-files-found: ignore
+
+  # Publish to public releases repo for auto-updates (uses GitHub App - no token rotation needed)
+  publish-public:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASES_APP_ID }}
+          private-key: ${{ secrets.RELEASES_APP_PRIVATE_KEY }}
+          owner: polajenko
+          repositories: inbox-hunter
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: artifacts/windows
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-build
+          path: artifacts/linux
+
+      - name: Download updater manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: updater-manifest
+          path: artifacts
+        continue-on-error: true
+
+      - name: Get version from tag
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: List artifacts
+        run: find artifacts -type f | head -50
+
+      - name: Create release on public repo
+        uses: softprops/action-gh-release@v1
+        with:
+          repository: polajenko/inbox-hunter
+          token: ${{ steps.app-token.outputs.token }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: InboxHunter v${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/**/*.msi
+            artifacts/**/*.exe
+            artifacts/**/*.deb
+            artifacts/**/*.AppImage
+            artifacts/latest.json
+          body: |
+            ## InboxHunter v${{ steps.version.outputs.version }}
+
+            ### Downloads
+            - **Windows**: Download the `.msi` installer
+            - **Linux**: Download the `.deb` package or `.AppImage`
+
+            ### Auto-Update
+            Existing users will receive this update automatically.

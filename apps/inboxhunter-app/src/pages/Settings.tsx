@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { 
   User, 
   Key, 
@@ -260,8 +260,27 @@ export function SettingsPage() {
     }
   }
 
-  // Current app version from package
-  const APP_VERSION = '1.2.7'
+  // Dynamic app version from Tauri
+  const [appVersion, setAppVersion] = useState<string>('...')
+
+  // Fetch version from Tauri on mount
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        // @ts-ignore - Tauri API
+        if (window.__TAURI__) {
+          const { getVersion } = await import('@tauri-apps/api/app')
+          const version = await getVersion()
+          setAppVersion(version)
+        } else {
+          setAppVersion('dev')
+        }
+      } catch {
+        setAppVersion('unknown')
+      }
+    }
+    fetchVersion()
+  }, [])
 
   // Mark field as touched when user interacts
   const handleBlur = (field: string) => {
@@ -1248,7 +1267,7 @@ export function SettingsPage() {
                     <Package className="w-4 h-4" />
                     Version
                   </div>
-                  <div className="text-lg font-semibold text-foreground">v{APP_VERSION}</div>
+                  <div className="text-lg font-semibold text-foreground">v{appVersion}</div>
                 </div>
                 <div className="p-4 rounded-lg bg-muted/50">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
@@ -1328,7 +1347,7 @@ export function SettingsPage() {
                     <span className="font-medium">You're up to date!</span>
                   </div>
                   <p className="text-sm text-muted-foreground mt-1">
-                    InboxHunter v{APP_VERSION} is the latest version
+                    InboxHunter v{appVersion} is the latest version
                   </p>
                 </div>
               )}

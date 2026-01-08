@@ -587,18 +587,23 @@ pub async fn start_bot(
     println!("🚀 Starting bot...");
     println!("   Config: {}", config_path.display());
     
+    // Get app version from tauri.conf.json to pass to Python
+    let app_version = app.package_info().version.to_string();
+
     // Try to find sidecar binary first (CI production builds)
     if let Some(sidecar_path) = find_sidecar_binary(&app) {
         println!("📦 Running with sidecar binary (self-contained mode)");
         println!("   Sidecar: {}", sidecar_path.display());
-        
+
         let mut cmd = Command::new(&sidecar_path);
         cmd.args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             // Force UTF-8 encoding for stdout/stderr (fixes emoji on Windows)
             .env("PYTHONIOENCODING", "utf-8")
-            .env("PYTHONUTF8", "1");
+            .env("PYTHONUTF8", "1")
+            // Pass app version from tauri.conf.json
+            .env("INBOXHUNTER_VERSION", &app_version);
         
         // On Unix, create a new process group so we can kill the entire tree
         #[cfg(unix)]
@@ -657,7 +662,9 @@ pub async fn start_bot(
             .stderr(Stdio::piped())
             // Force UTF-8 encoding for Python stdout/stderr (fixes emoji on Windows)
             .env("PYTHONIOENCODING", "utf-8")
-            .env("PYTHONUTF8", "1");
+            .env("PYTHONUTF8", "1")
+            // Pass app version from tauri.conf.json
+            .env("INBOXHUNTER_VERSION", &app_version);
         
         // On Unix, create a new process group so we can kill the entire tree
         #[cfg(unix)]

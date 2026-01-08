@@ -115,8 +115,9 @@ def setup_logging(debug: bool = False):
         compression="gz"
     )
     
-    # Startup message - always show
-    logger.info("🚀 InboxHunter v1.2.4")
+    # Startup message - always show (version from Tauri env var or fallback)
+    version = os.environ.get("INBOXHUNTER_VERSION", "dev")
+    logger.info(f"🚀 InboxHunter v{version}")
 
 
 def parse_args():
