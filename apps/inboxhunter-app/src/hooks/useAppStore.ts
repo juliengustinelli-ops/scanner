@@ -129,7 +129,7 @@ const initialSettings: Settings = {
   minDelay: 10,
   maxDelay: 30,
   llmModel: 'gpt-4o-mini',
-  batchPlanning: false,  // Disabled by default, can be enabled for faster execution
+  batchPlanning: true,  // Enabled by default - sends HTML once, gets all actions (faster, cheaper)
 }
 
 const initialStats: Stats = {
@@ -416,11 +416,15 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'inboxhunter-storage',
-      version: 2, // Increment this when adding new fields
+      version: 3, // Increment this when adding new fields
       partialize: (state) => ({
         credentials: state.credentials,
         apiKeys: state.apiKeys,
-        settings: state.settings,
+        // Exclude batchPlanning from persistence - always use code default (true)
+        settings: {
+          ...state.settings,
+          batchPlanning: undefined, // Don't persist - always use default
+        },
       }),
       // Merge persisted state with initial state to handle new fields
       merge: (persistedState, currentState) => {
@@ -464,7 +468,7 @@ export const useAppStore = create<AppState>()(
       // Migration function for version upgrades
       migrate: (persistedState, version) => {
         const state = persistedState as any
-        
+
         // Migration from version 1 (or no version) to version 2
         if (version < 2) {
           // Ensure detailedLogs exists and syncs with debug
@@ -482,7 +486,19 @@ export const useAppStore = create<AppState>()(
             }
           }
         }
-        
+
+        // Migration to version 3: Force batch planning mode
+        if (version < 3) {
+          if (state.settings) {
+            // Force batch planning to true (HTML-only mode, no vision)
+            state.settings.batchPlanning = true
+            // Update default model to gpt-4o-mini
+            if (state.settings.llmModel === 'gpt-4o') {
+              state.settings.llmModel = 'gpt-4o-mini'
+            }
+          }
+        }
+
         return state
       },
     }
