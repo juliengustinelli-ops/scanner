@@ -62,8 +62,9 @@ Write-Host ""
 
 # Show next command if not running release
 if ($Command -ne "release") {
-    Write-Color "To create a release, run:" "Cyan"
-    Write-Host "  .\scripts\version.ps1 release $nextPatch"
+    Write-Color "To create a release:" "Cyan"
+    Write-Host "  1. .\scripts\version.ps1 release $nextPatch"
+    Write-Host "  2. git push origin main --tags"
     Write-Host ""
 }
 
