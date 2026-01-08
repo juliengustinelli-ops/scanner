@@ -1374,7 +1374,7 @@ export function SettingsPage() {
 
             {/* Copyright */}
             <div className="text-center text-sm text-muted-foreground">
-              <p>© 2024 InboxHunter. All rights reserved.</p>
+              <p>© {new Date().getFullYear()} InboxHunter. All rights reserved.</p>
               <p className="mt-1">Built with Tauri, React, and GPT-4 Vision</p>
             </div>
           </div>

@@ -212,3 +212,106 @@ jobs:
           path: |
             apps/inboxhunter-app/src-tauri/target/release/bundle/deb/*.deb
             apps/inboxhunter-app/src-tauri/target/release/bundle/appimage/*.AppImage
+
+  # Upload to S3 for auto-updates
+  upload-to-s3:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: artifacts/windows
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-build
+          path: artifacts/linux
+
+      - name: Get version from tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download latest.json from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Wait for release assets to be available
+          sleep 30
+
+          # Get the release
+          RELEASE_TAG="v${{ steps.version.outputs.version }}"
+
+          # Download latest.json from the release
+          gh release download "$RELEASE_TAG" \
+            --repo ${{ github.repository }} \
+            --pattern "latest.json" \
+            --dir artifacts/ || echo "latest.json not found, will be created by tauri-action"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-north-1
+
+      - name: Upload to S3
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          S3_BUCKET="inboxhunter-releases"
+          S3_PATH="releases/latest"
+
+          echo "Uploading version $VERSION to S3..."
+
+          # Upload latest.json (update manifest)
+          if [ -f "artifacts/latest.json" ]; then
+            aws s3 cp artifacts/latest.json "s3://$S3_BUCKET/$S3_PATH/update.json" \
+              --content-type "application/json"
+            echo "✅ Uploaded update.json"
+          fi
+
+          # Upload Windows NSIS installer (for auto-update)
+          NSIS_FILE=$(find artifacts/windows -name "*.exe" -type f 2>/dev/null | head -1)
+          if [ -n "$NSIS_FILE" ]; then
+            NSIS_NAME=$(basename "$NSIS_FILE")
+            aws s3 cp "$NSIS_FILE" "s3://$S3_BUCKET/$S3_PATH/$NSIS_NAME"
+            echo "✅ Uploaded $NSIS_NAME"
+
+            # Also upload the zip for signature verification
+            NSIS_ZIP="${NSIS_FILE%.exe}.nsis.zip"
+            if [ -f "$NSIS_ZIP" ]; then
+              aws s3 cp "$NSIS_ZIP" "s3://$S3_BUCKET/$S3_PATH/$(basename $NSIS_ZIP)"
+            fi
+          fi
+
+          # Upload Windows MSI
+          MSI_FILE=$(find artifacts/windows -name "*.msi" -type f 2>/dev/null | head -1)
+          if [ -n "$MSI_FILE" ]; then
+            aws s3 cp "$MSI_FILE" "s3://$S3_BUCKET/$S3_PATH/$(basename $MSI_FILE)"
+            echo "✅ Uploaded $(basename $MSI_FILE)"
+          fi
+
+          # Upload Linux AppImage
+          APPIMAGE_FILE=$(find artifacts/linux -name "*.AppImage" -type f 2>/dev/null | head -1)
+          if [ -n "$APPIMAGE_FILE" ]; then
+            aws s3 cp "$APPIMAGE_FILE" "s3://$S3_BUCKET/$S3_PATH/$(basename $APPIMAGE_FILE)"
+            echo "✅ Uploaded $(basename $APPIMAGE_FILE)"
+          fi
+
+          # Upload Linux deb
+          DEB_FILE=$(find artifacts/linux -name "*.deb" -type f 2>/dev/null | head -1)
+          if [ -n "$DEB_FILE" ]; then
+            aws s3 cp "$DEB_FILE" "s3://$S3_BUCKET/$S3_PATH/$(basename $DEB_FILE)"
+            echo "✅ Uploaded $(basename $DEB_FILE)"
+          fi
+
+          echo ""
+          echo "🎉 All files uploaded to S3!"
+          echo "Update endpoint: https://$S3_BUCKET.s3.eu-north-1.amazonaws.com/$S3_PATH/update.json"
