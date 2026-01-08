@@ -61,11 +61,12 @@ class LLMPageAnalyzer:
 
         # Update session totals
         if model not in self._session_costs:
-            self._session_costs[model] = {"input_tokens": 0, "output_tokens": 0, "cost": 0.0}
+            self._session_costs[model] = {"input_tokens": 0, "output_tokens": 0, "cost": 0.0, "calls": 0}
 
         self._session_costs[model]["input_tokens"] += prompt_tokens
         self._session_costs[model]["output_tokens"] += completion_tokens
         self._session_costs[model]["cost"] += call_cost
+        self._session_costs[model]["calls"] += 1
         self.__class__._total_calls += 1
 
         # Get cumulative total
