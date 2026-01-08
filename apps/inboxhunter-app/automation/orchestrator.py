@@ -165,6 +165,13 @@ class InboxHunterBot:
             return True
         if self._external_stop_check and self._external_stop_check():
             return True
+        # Check for stop signal file (created by Rust when user clicks Stop)
+        from utils.helpers import get_app_data_directory
+        stop_signal_path = get_app_data_directory() / "stop_signal.txt"
+        if stop_signal_path.exists():
+            slog.detail("📝 Stop signal file detected")
+            self._stop_requested = True  # Cache it so we don't keep checking
+            return True
         return False
     
     async def run(self):
@@ -269,6 +276,8 @@ class InboxHunterBot:
             # Always print summary, even on stop or error
             elapsed_time = time.time() - start_time
             self._print_summary(elapsed_time)
+            # Clean up browser
+            await self.cleanup()
     
     async def _get_urls(self) -> List[Dict[str, Any]]:
         """Get URLs from configured source."""
@@ -1436,6 +1445,17 @@ class InboxHunterBot:
 
             # Also show in simple log (always visible)
             logger.info(f"💰 API Cost: ${cost_summary['total_cost']:.4f} ({cost_summary['total_calls']} calls)")
+
+            # Save costs to database for cumulative tracking
+            try:
+                # Add 'calls' key for each model (needed by save_api_session_costs)
+                for model, stats in cost_summary['by_model'].items():
+                    if 'calls' not in stats:
+                        stats['calls'] = stats.get('api_calls', 0)
+                self.db.save_api_session_costs(cost_summary)
+                slog.detail("💾 Session costs saved to database")
+            except Exception as e:
+                logger.debug(f"Could not save costs to database: {e}")
 
         slog.detail("="*60)
     

@@ -52,6 +52,10 @@ fn main() {
             commands::retry_failed_urls,
             commands::retry_url_by_id,
             commands::get_failed_count,
+            // API Cost Tracking
+            commands::get_api_sessions,
+            commands::get_api_cost_summary,
+            commands::clear_api_sessions,
             // Settings
             commands::save_settings,
             commands::load_settings,

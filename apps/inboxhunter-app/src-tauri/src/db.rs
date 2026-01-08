@@ -31,11 +31,23 @@ pub fn init_database(db_path: &Path) -> Result<()> {
             processed INTEGER DEFAULT 0
         );
         
+        -- API Sessions: Cost tracking per session
+        CREATE TABLE IF NOT EXISTS api_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_start DATETIME DEFAULT CURRENT_TIMESTAMP,
+            model TEXT NOT NULL,
+            input_tokens INTEGER DEFAULT 0,
+            output_tokens INTEGER DEFAULT 0,
+            cost TEXT DEFAULT '0.0',
+            api_calls INTEGER DEFAULT 0
+        );
+
         -- Indexes for performance
         CREATE INDEX IF NOT EXISTS idx_processed_url ON processed_urls(url);
         CREATE INDEX IF NOT EXISTS idx_processed_status ON processed_urls(status);
         CREATE INDEX IF NOT EXISTS idx_scraped_url ON scraped_urls(url);
         CREATE INDEX IF NOT EXISTS idx_scraped_processed ON scraped_urls(processed);
+        CREATE INDEX IF NOT EXISTS idx_api_sessions_model ON api_sessions(model);
         "
     )?;
     
@@ -293,4 +305,109 @@ pub fn is_url_processed(db_path: &str, url: &str) -> Result<bool> {
 // Legacy stats function - now returns processed stats
 pub fn get_stats(db_path: &str) -> Result<ProcessedStats> {
     get_processed_stats(db_path)
+}
+
+// ==================== API COST TRACKING ====================
+
+use crate::commands::{ApiSession, ApiCostSummary, ModelCostStats};
+use std::collections::HashMap;
+
+pub fn get_api_sessions(db_path: &str, limit: i32) -> Result<Vec<ApiSession>> {
+    let conn = Connection::open(db_path)?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, session_start, model, input_tokens, output_tokens, cost, api_calls
+         FROM api_sessions
+         ORDER BY session_start DESC
+         LIMIT ?"
+    )?;
+
+    let rows = stmt.query_map([limit], |row| {
+        Ok(ApiSession {
+            id: row.get(0)?,
+            session_start: row.get(1)?,
+            model: row.get(2)?,
+            input_tokens: row.get(3)?,
+            output_tokens: row.get(4)?,
+            cost: row.get(5)?,
+            api_calls: row.get(6)?,
+        })
+    })?;
+
+    let mut sessions = Vec::new();
+    for session in rows {
+        sessions.push(session?);
+    }
+    Ok(sessions)
+}
+
+pub fn get_api_cost_summary(db_path: &str) -> Result<ApiCostSummary> {
+    let conn = Connection::open(db_path)?;
+
+    // Get totals by model
+    let mut stmt = conn.prepare(
+        "SELECT model,
+                SUM(input_tokens) as input_tokens,
+                SUM(output_tokens) as output_tokens,
+                SUM(api_calls) as api_calls
+         FROM api_sessions
+         GROUP BY model"
+    )?;
+
+    let mut by_model: HashMap<String, ModelCostStats> = HashMap::new();
+    let mut total_cost: f64 = 0.0;
+    let mut total_calls: i64 = 0;
+    let mut total_tokens: i64 = 0;
+
+    let rows = stmt.query_map([], |row| {
+        let model: String = row.get(0)?;
+        let input_tokens: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
+        let output_tokens: i64 = row.get::<_, Option<i64>>(2)?.unwrap_or(0);
+        let api_calls: i64 = row.get::<_, Option<i64>>(3)?.unwrap_or(0);
+        Ok((model, input_tokens, output_tokens, api_calls))
+    })?;
+
+    for row in rows {
+        let (model, input_tokens, output_tokens, api_calls) = row?;
+
+        // Sum costs for this model
+        let cost_sum: f64 = conn.query_row(
+            "SELECT COALESCE(SUM(CAST(cost AS REAL)), 0.0) FROM api_sessions WHERE model = ?",
+            [&model],
+            |row| row.get(0)
+        ).unwrap_or(0.0);
+
+        by_model.insert(model, ModelCostStats {
+            input_tokens,
+            output_tokens,
+            total_tokens: input_tokens + output_tokens,
+            api_calls,
+            cost: (cost_sum * 10000.0).round() / 10000.0, // Round to 4 decimals
+        });
+
+        total_cost += cost_sum;
+        total_calls += api_calls;
+        total_tokens += input_tokens + output_tokens;
+    }
+
+    // Get session count
+    let session_count: i64 = conn.query_row(
+        "SELECT COUNT(DISTINCT session_start) FROM api_sessions",
+        [],
+        |row| row.get(0)
+    ).unwrap_or(0);
+
+    Ok(ApiCostSummary {
+        by_model,
+        total_cost: (total_cost * 10000.0).round() / 10000.0,
+        total_calls,
+        total_tokens,
+        session_count,
+    })
+}
+
+pub fn clear_api_sessions(db_path: &str) -> Result<()> {
+    let conn = Connection::open(db_path)?;
+    conn.execute("DELETE FROM api_sessions", [])?;
+    Ok(())
 }

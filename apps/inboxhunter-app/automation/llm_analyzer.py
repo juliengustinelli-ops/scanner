@@ -104,7 +104,17 @@ class LLMPageAnalyzer:
                     document.querySelectorAll('form').forEach((form, idx) => {
                         if (isVisible(form)) {
                             const formClone = form.cloneNode(true);
+                            // Remove script/style/noscript
                             formClone.querySelectorAll('script, style, noscript').forEach(el => el.remove());
+                            // Remove hidden containers (honeypots, spam traps)
+                            formClone.querySelectorAll('[style*="display: none"], [style*="display:none"], [hidden], .hidden, .d-none, .sr-only, .visually-hidden').forEach(el => el.remove());
+                            // Remove inputs inside hidden containers that we might have missed
+                            formClone.querySelectorAll('*').forEach(el => {
+                                const style = el.getAttribute('style') || '';
+                                if (style.includes('display') && style.includes('none')) {
+                                    el.remove();
+                                }
+                            });
                             cleanHtml.appendChild(formClone);
                         }
                     });
@@ -1088,15 +1098,47 @@ If no signup form found:
         html_lower = simplified_html.lower()
         has_input = "<input" in html_lower
         has_textarea = "<textarea" in html_lower
-        has_usable_elements = has_input or has_textarea
 
-        # Fast-fail if no form elements found
+        # Check for FILLABLE text inputs - inputs users can type text into
+        # Must explicitly check for text-entry types, not just any input
+        has_fillable_input = (
+            has_textarea or
+            'type="email"' in html_lower or
+            "type='email'" in html_lower or
+            'type="text"' in html_lower or
+            "type='text'" in html_lower or
+            'type="tel"' in html_lower or
+            "type='tel'" in html_lower or
+            'type="password"' in html_lower or
+            "type='password'" in html_lower
+        )
+
+        # If no explicit fillable type found, check for inputs with email-related attributes
+        # (these are often type-less inputs that default to text)
+        if not has_fillable_input and has_input:
+            # Look for email signup indicators
+            has_email_indicator = (
+                'name="email"' in html_lower or
+                "name='email'" in html_lower or
+                'placeholder="email' in html_lower or
+                "placeholder='email" in html_lower or
+                'placeholder="your email' in html_lower or
+                'placeholder="enter email' in html_lower or
+                'placeholder="e-mail' in html_lower or
+                '@' in simplified_html and 'placeholder=' in html_lower
+            )
+            has_fillable_input = has_email_indicator
+
+        has_usable_elements = has_fillable_input
+
+        # Fast-fail if no fillable form elements found
+        # This catches pages with only: radio buttons, checkboxes, hidden inputs, buttons
         if not has_usable_elements:
-            logger.warning(f"⚠️ No input elements in HTML ({len(simplified_html)} chars) - skipping LLM call")
+            logger.warning(f"⚠️ No fillable input elements in HTML ({len(simplified_html)} chars) - skipping LLM call")
             return {
                 "plan_type": "batch",
-                "actions": [{"action": "complete", "reasoning": "No signup form - no input elements found"}],
-                "reasoning": "No form elements detected in HTML",
+                "actions": [{"action": "complete", "reasoning": "No signup form - no fillable input elements found"}],
+                "reasoning": "No fillable form elements detected in HTML (only radio/checkbox/hidden/buttons)",
                 "no_form": True
             }
 

@@ -112,6 +112,35 @@ pub struct ScrapedURL {
     pub processed: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiSession {
+    pub id: i32,
+    pub session_start: String,
+    pub model: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cost: String,
+    pub api_calls: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ModelCostStats {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    pub api_calls: i64,
+    pub cost: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiCostSummary {
+    pub by_model: std::collections::HashMap<String, ModelCostStats>,
+    pub total_cost: f64,
+    pub total_calls: i64,
+    pub total_tokens: i64,
+    pub session_count: i64,
+}
+
 #[derive(Clone, Serialize)]
 pub struct LogEvent {
     pub level: String,
@@ -517,7 +546,11 @@ pub async fn start_bot(
         .app_data_dir()
         .ok_or("Failed to get app data directory")?;
     std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
-    
+
+    // Clear any leftover stop signal file from previous run
+    let stop_signal_path = data_dir.join("stop_signal.txt");
+    let _ = std::fs::remove_file(&stop_signal_path);
+
     let config_path = data_dir.join("bot_config.json");
     let config_json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
     std::fs::write(&config_path, &config_json).map_err(|e| e.to_string())?;
@@ -722,52 +755,84 @@ fn determine_log_level(line: &str) -> &'static str {
 }
 
 #[command]
-pub async fn stop_bot(state: State<'_, AppState>) -> Result<String, String> {
-    // Kill process and all its children
+pub async fn stop_bot(state: State<'_, AppState>, app: AppHandle) -> Result<String, String> {
+    // Get app data directory for stop signal file
+    let data_dir = app.path_resolver()
+        .app_data_dir()
+        .ok_or("Failed to get app data directory")?;
+    let stop_signal_path = data_dir.join("stop_signal.txt");
+
+    // Create stop signal file - Python will check for this and stop gracefully
+    std::fs::write(&stop_signal_path, "stop").map_err(|e| e.to_string())?;
+    println!("📝 Created stop signal file: {}", stop_signal_path.display());
+
+    // Wait for process to exit gracefully
     {
         let mut process = state.bot_process.lock().map_err(|e| e.to_string())?;
         if let Some(ref mut child) = *process {
             let pid = child.id();
-            
-            // Kill the entire process tree
-            #[cfg(unix)]
-            {
-                // On Unix, kill the process group
-                unsafe {
-                    // Try to kill the process group (negative PID)
-                    libc::kill(-(pid as i32), libc::SIGTERM);
-                    // Give processes time to cleanup
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    // Force kill if still running
-                    libc::kill(-(pid as i32), libc::SIGKILL);
+            println!("⏳ Waiting for bot (PID {}) to stop gracefully...", pid);
+
+            // Wait up to 10 seconds for graceful exit
+            let mut waited = 0;
+            let max_wait_ms = 10000;
+            let poll_interval_ms = 500;
+
+            loop {
+                // Check if process has exited
+                match child.try_wait() {
+                    Ok(Some(_status)) => {
+                        println!("✅ Bot exited gracefully");
+                        break;
+                    }
+                    Ok(None) => {
+                        // Still running
+                        if waited >= max_wait_ms {
+                            println!("⚠️ Bot didn't stop gracefully, forcing termination...");
+                            // Force kill
+                            #[cfg(unix)]
+                            {
+                                unsafe {
+                                    libc::kill(-(pid as i32), libc::SIGKILL);
+                                }
+                                let _ = std::process::Command::new("pkill")
+                                    .args(["-KILL", "-P", &pid.to_string()])
+                                    .output();
+                            }
+
+                            #[cfg(windows)]
+                            {
+                                let _ = std::process::Command::new("taskkill")
+                                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                                    .output();
+                            }
+
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms as u64));
+                        waited += poll_interval_ms;
+                    }
+                    Err(e) => {
+                        println!("⚠️ Error checking process status: {}", e);
+                        break;
+                    }
                 }
-                // Also kill by direct PID in case process group kill didn't work
-                let _ = std::process::Command::new("pkill")
-                    .args(["-TERM", "-P", &pid.to_string()])
-                    .output();
             }
-            
-            #[cfg(windows)]
-            {
-                // On Windows, use taskkill to kill process tree
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/F", "/T", "/PID", &pid.to_string()])
-                    .output();
-            }
-            
-            // Also try the standard kill
-            let _ = child.kill();
-            let _ = child.wait();
         }
         *process = None;
     }
-    
+
+    // Clean up stop signal file
+    let _ = std::fs::remove_file(&stop_signal_path);
+
     // Mark as not running
     {
         let mut running = state.bot_running.lock().map_err(|e| e.to_string())?;
         *running = false;
     }
-    
+
     Ok("Bot stopped".to_string())
 }
 
@@ -887,6 +952,32 @@ pub async fn get_failed_count(state: State<'_, AppState>) -> Result<i32, String>
     let db_path = state.db_path.lock().map_err(|e| e.to_string())?;
     let count = db::get_failed_count(&db_path).map_err(|e| e.to_string())?;
     Ok(count)
+}
+
+// ==================== API COST TRACKING COMMANDS ====================
+
+#[command]
+pub async fn get_api_sessions(
+    state: State<'_, AppState>,
+    limit: Option<i32>,
+) -> Result<Vec<ApiSession>, String> {
+    let db_path = state.db_path.lock().map_err(|e| e.to_string())?;
+    let sessions = db::get_api_sessions(&db_path, limit.unwrap_or(50)).map_err(|e| e.to_string())?;
+    Ok(sessions)
+}
+
+#[command]
+pub async fn get_api_cost_summary(state: State<'_, AppState>) -> Result<ApiCostSummary, String> {
+    let db_path = state.db_path.lock().map_err(|e| e.to_string())?;
+    let summary = db::get_api_cost_summary(&db_path).map_err(|e| e.to_string())?;
+    Ok(summary)
+}
+
+#[command]
+pub async fn clear_api_sessions(state: State<'_, AppState>) -> Result<String, String> {
+    let db_path = state.db_path.lock().map_err(|e| e.to_string())?;
+    db::clear_api_sessions(&db_path).map_err(|e| e.to_string())?;
+    Ok("API session history cleared".to_string())
 }
 
 #[command]

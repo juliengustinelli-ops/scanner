@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Home, 
-  Settings, 
-  Database, 
-  Play, 
-  Square, 
+import {
+  Home,
+  Settings,
+  Database,
+  Play,
+  Square,
   BarChart3,
   ScrollText,
   Sun,
@@ -18,12 +18,14 @@ import {
   Sparkles,
   AlertCircle,
   CheckCircle2,
-  Loader2
+  Loader2,
+  DollarSign
 } from 'lucide-react'
 import { Dashboard } from './pages/Dashboard'
 import { SettingsPage } from './pages/Settings'
 import { LogsPage } from './pages/Logs'
 import { DatabasePage } from './pages/Database'
+import { CostsPage } from './pages/Costs'
 import { useAppStore } from './hooks/useAppStore'
 import { useTheme } from './hooks/useTheme'
 
@@ -40,7 +42,7 @@ interface ScrapedStats {
   pending: number
 }
 
-type Tab = 'dashboard' | 'database' | 'settings' | 'logs'
+type Tab = 'dashboard' | 'database' | 'logs' | 'costs' | 'settings'
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme()
@@ -392,6 +394,7 @@ function App() {
     { id: 'dashboard' as Tab, label: 'Dashboard', icon: Home },
     { id: 'database' as Tab, label: 'Database', icon: Database },
     { id: 'logs' as Tab, label: 'Logs', icon: ScrollText },
+    { id: 'costs' as Tab, label: 'API Costs', icon: DollarSign },
     { id: 'settings' as Tab, label: 'Settings', icon: Settings },
   ]
 
@@ -779,8 +782,9 @@ function App() {
             >
               {activeTab === 'dashboard' && <Dashboard onViewLogs={() => setActiveTab('logs')} />}
               {activeTab === 'database' && <DatabasePage />}
-              {activeTab === 'settings' && <SettingsPage />}
               {activeTab === 'logs' && <LogsPage />}
+              {activeTab === 'costs' && <CostsPage />}
+              {activeTab === 'settings' && <SettingsPage />}
             </motion.div>
           </AnimatePresence>
         </main>

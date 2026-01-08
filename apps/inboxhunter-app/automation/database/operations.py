@@ -33,13 +33,26 @@ class ProcessedURL(Base):
 class ScrapedURL(Base):
     """URLs scraped from Meta Ads library (queue for processing)."""
     __tablename__ = 'scraped_urls'
-    
+
     id = Column(Integer, primary_key=True)
     url = Column(String(2000), nullable=False, unique=True)
     ad_id = Column(String(100))  # Meta Ad ID
     advertiser = Column(String(500))  # Advertiser name
     scraped_at = Column(DateTime, default=datetime.utcnow)
     processed = Column(Integer, default=0)  # 0 = not processed, 1 = processed
+
+
+class ApiSession(Base):
+    """API cost tracking per session."""
+    __tablename__ = 'api_sessions'
+
+    id = Column(Integer, primary_key=True)
+    session_start = Column(DateTime, default=datetime.utcnow)
+    model = Column(String(50), nullable=False)  # e.g., 'gpt-4o-mini'
+    input_tokens = Column(Integer, default=0)
+    output_tokens = Column(Integer, default=0)
+    cost = Column(String(20), default='0.0')  # Store as string for precision
+    api_calls = Column(Integer, default=0)
 
 
 class DatabaseOperations:
@@ -334,3 +347,115 @@ class DatabaseOperations:
         """Legacy method - now just logs, as errors are tracked in processed_urls."""
         logger.debug(f"Error recorded for {url}: {error_type} - {error_message}")
         return 0
+
+    # ==================== API COST TRACKING ====================
+
+    def save_api_session_costs(self, cost_data: Dict[str, Any]) -> int:
+        """Save API costs from a session. Returns number of records added."""
+        session = self.Session()
+        added = 0
+        try:
+            session_time = datetime.utcnow()
+            by_model = cost_data.get('by_model', {})
+
+            for model, stats in by_model.items():
+                record = ApiSession(
+                    session_start=session_time,
+                    model=model,
+                    input_tokens=stats.get('input_tokens', 0),
+                    output_tokens=stats.get('output_tokens', 0),
+                    cost=str(stats.get('cost', 0.0)),
+                    api_calls=stats.get('calls', 0)
+                )
+                session.add(record)
+                added += 1
+
+            session.commit()
+            return added
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error saving API session costs: {e}")
+            return 0
+        finally:
+            session.close()
+
+    def get_api_cost_summary(self) -> Dict[str, Any]:
+        """Get cumulative API cost summary across all sessions."""
+        session = self.Session()
+        try:
+            from sqlalchemy import func
+
+            # Get totals by model
+            results = session.query(
+                ApiSession.model,
+                func.sum(ApiSession.input_tokens).label('input_tokens'),
+                func.sum(ApiSession.output_tokens).label('output_tokens'),
+                func.sum(ApiSession.api_calls).label('api_calls')
+            ).group_by(ApiSession.model).all()
+
+            by_model = {}
+            total_cost = 0.0
+            total_calls = 0
+            total_tokens = 0
+
+            for row in results:
+                # Sum costs (stored as strings)
+                model_costs = session.query(ApiSession.cost).filter(
+                    ApiSession.model == row.model
+                ).all()
+                model_cost = sum(float(c[0]) for c in model_costs)
+
+                by_model[row.model] = {
+                    'input_tokens': row.input_tokens or 0,
+                    'output_tokens': row.output_tokens or 0,
+                    'total_tokens': (row.input_tokens or 0) + (row.output_tokens or 0),
+                    'api_calls': row.api_calls or 0,
+                    'cost': round(model_cost, 4)
+                }
+                total_cost += model_cost
+                total_calls += row.api_calls or 0
+                total_tokens += (row.input_tokens or 0) + (row.output_tokens or 0)
+
+            # Get session count
+            session_count = session.query(
+                func.count(func.distinct(ApiSession.session_start))
+            ).scalar() or 0
+
+            return {
+                'by_model': by_model,
+                'total_cost': round(total_cost, 4),
+                'total_calls': total_calls,
+                'total_tokens': total_tokens,
+                'session_count': session_count
+            }
+        finally:
+            session.close()
+
+    def get_api_sessions(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get recent API session records."""
+        session = self.Session()
+        try:
+            records = session.query(ApiSession).order_by(
+                ApiSession.session_start.desc()
+            ).limit(limit).all()
+
+            return [{
+                'id': r.id,
+                'session_start': r.session_start.isoformat() if r.session_start else None,
+                'model': r.model,
+                'input_tokens': r.input_tokens,
+                'output_tokens': r.output_tokens,
+                'cost': float(r.cost) if r.cost else 0.0,
+                'api_calls': r.api_calls
+            } for r in records]
+        finally:
+            session.close()
+
+    def clear_api_sessions(self):
+        """Clear all API session records."""
+        session = self.Session()
+        try:
+            session.query(ApiSession).delete()
+            session.commit()
+        finally:
+            session.close()
