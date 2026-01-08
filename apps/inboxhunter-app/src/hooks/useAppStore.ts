@@ -128,7 +128,7 @@ const initialSettings: Settings = {
   detailedLogs: false,  // Simple logs by default
   minDelay: 10,
   maxDelay: 30,
-  llmModel: 'gpt-4o',
+  llmModel: 'gpt-4o-mini',
   batchPlanning: false,  // Disabled by default, can be enabled for faster execution
 }
 

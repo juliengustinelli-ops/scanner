@@ -261,7 +261,7 @@ export function SettingsPage() {
   }
 
   // Current app version from package
-  const APP_VERSION = '1.2.4'
+  const APP_VERSION = '1.2.5'
 
   // Mark field as touched when user interacts
   const handleBlur = (field: string) => {
@@ -767,12 +767,12 @@ export function SettingsPage() {
                 onChange={(e) => updateDraftSettings({ llmModel: e.target.value })}
                 className="w-full px-4 py-2.5 rounded-lg bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               >
-                <option value="gpt-4o">GPT-4o (Recommended)</option>
-                <option value="gpt-4o-mini">GPT-4o Mini (Faster, Lower Cost)</option>
+                <option value="gpt-4o-mini">GPT-4o Mini (Recommended - Fast & Cost-Effective)</option>
+                <option value="gpt-4o">GPT-4o (Higher Accuracy, Higher Cost)</option>
                 <option value="gpt-4-turbo">GPT-4 Turbo</option>
               </select>
               <p className="mt-2 text-sm text-muted-foreground">
-                GPT-4o provides the best accuracy for form detection and filling
+                GPT-4o Mini offers great accuracy at lower cost. Use GPT-4o for complex forms.
               </p>
             </div>
           </div>

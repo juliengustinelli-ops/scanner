@@ -257,7 +257,15 @@ fn find_sidecar_binary(app: &AppHandle) -> Option<PathBuf> {
                 println!("   ✅ Found sidecar next to exe");
                 return Some(sidecar_path);
             }
-            
+
+            // Check for production name (Tauri bundles without platform suffix)
+            let prod_sidecar = exe_dir.join("inboxhunter-automation.exe");
+            println!("   Checking production name: {:?}", prod_sidecar);
+            if prod_sidecar.exists() {
+                println!("   ✅ Found sidecar (production name)");
+                return Some(prod_sidecar);
+            }
+
             // List contents of exe_dir for debugging
             println!("   📂 Contents of exe directory:");
             if let Ok(entries) = std::fs::read_dir(exe_dir) {
@@ -290,9 +298,16 @@ fn find_sidecar_binary(app: &AppHandle) -> Option<PathBuf> {
                 println!("   ✅ Found sidecar next to exe");
                 return Some(sidecar_path);
             }
+
+            // Check for production name (Tauri bundles without platform suffix)
+            let prod_sidecar = exe_dir.join("inboxhunter-automation");
+            if prod_sidecar.exists() {
+                println!("   ✅ Found sidecar (production name)");
+                return Some(prod_sidecar);
+            }
         }
     }
-    
+
     // Try Tauri's resource resolver
     if let Some(resource_dir) = app.path_resolver().resource_dir() {
         // Check automation subfolder
