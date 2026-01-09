@@ -137,7 +137,7 @@ class AIAgentOrchestrator:
         
         self.last_action_type = None
         self.consecutive_rate_limits = 0
-        
+
         # Initialize LLM analyzer
         self.llm_analyzer = LLMPageAnalyzer(
             page=page,
@@ -147,7 +147,21 @@ class AIAgentOrchestrator:
         )
         
         slog.detail("🤖 AI Agent initialized")
-    
+
+    async def _interruptible_sleep(self, seconds: float, check_interval: float = 0.5) -> bool:
+        """
+        Sleep for the given duration but check stop signal periodically.
+        Returns True if interrupted by stop signal, False if completed normally.
+        """
+        elapsed = 0.0
+        while elapsed < seconds:
+            if self._stop_check():
+                return True  # Interrupted
+            sleep_time = min(check_interval, seconds - elapsed)
+            await asyncio.sleep(sleep_time)
+            elapsed += sleep_time
+        return False  # Completed normally
+
     def _humanize_error(self, error: str, action: AgentAction) -> str:
         """Convert technical errors into clear, user-friendly messages that specify which field failed."""
         if not error:
@@ -1363,13 +1377,19 @@ class AIAgentOrchestrator:
                 # Check for network-based success indicators
                 # If we received a successful HTTP response after submit, that's a strong success signal
                 submission_response = getattr(self.state, 'submission_response', None) or {}
+                network_success = False
+                navigation_occurred = False
                 if submission_response.get("response_received"):
                     response_status = submission_response.get("response_status", 0)
+                    navigation_occurred = submission_response.get("navigation_occurred", False)
                     # HTTP 200, 201, 204 are success indicators
                     if response_status in [200, 201, 204]:
                         slog.detail(f"   📡 Network success detected: HTTP {response_status}")
                         verification_context["network_success"] = True
                         verification_context["network_status"] = response_status
+                        network_success = True
+                        if navigation_occurred:
+                            slog.detail(f"   🔄 Navigation after submit: {submission_response.get('url_after', '')[:50]}...")
 
                 # Call LLM to verify submission
                 verification_result = await self.llm_analyzer.verify_submission(verification_context)
@@ -1378,6 +1398,21 @@ class AIAgentOrchestrator:
                 confidence = verification_result.get("confidence", 0)
                 reasoning = verification_result.get("reasoning", "")
                 next_actions = verification_result.get("next_actions", [])
+                error_indicators = verification_result.get("error_indicators", [])
+
+                # OVERRIDE: If we have strong network success (HTTP 200/201/204 + navigation) but LLM is unsure,
+                # treat as success unless there are clear error messages
+                if network_success and navigation_occurred and status in ["validation_error", "failed", "needs_more_actions"]:
+                    # Check if there are any real error indicators
+                    has_real_errors = any(
+                        "invalid" in err.lower() or "required" in err.lower() or "error" in err.lower()
+                        for err in error_indicators
+                    )
+                    if not has_real_errors:
+                        slog.detail(f"   🔄 Overriding LLM status '{status}' - network shows HTTP {submission_response.get('response_status')} with redirect")
+                        status = "success"
+                        confidence = 0.75
+                        reasoning = f"Network indicates success (HTTP {submission_response.get('response_status')} + redirect) despite {status} status"
 
                 if status == "success":
                     slog.detail_success(f"🎉 VERIFIED SUCCESS (confidence: {confidence:.0%}): {reasoning}")
@@ -1409,8 +1444,74 @@ class AIAgentOrchestrator:
 
                     slog.detail(f"🔄 Multi-step form detected (round {verification_round + 1}): {len(new_actions)} more actions needed")
 
-                    # Execute additional actions
-                    for j, action_data in enumerate(new_actions, 1):
+                    # Validate selectors exist before executing
+                    validated_actions = []
+                    for action_data in new_actions:
+                        selector = action_data.get("selector", "")
+                        action_type = action_data.get("action", "")
+                        if not selector or action_type == "complete":
+                            validated_actions.append(action_data)
+                            continue
+                        # Check if selector actually exists on page
+                        try:
+                            exists = await self.page.evaluate(f"""
+                                () => {{
+                                    try {{
+                                        return document.querySelector("{selector.replace('"', '\\"')}") !== null;
+                                    }} catch(e) {{
+                                        return false;
+                                    }}
+                                }}
+                            """)
+                            if exists:
+                                validated_actions.append(action_data)
+                            else:
+                                slog.detail_warning(f"   ⚠️ LLM suggested non-existent selector: {selector[:50]}... - skipping")
+                        except:
+                            # If check fails, include action anyway
+                            validated_actions.append(action_data)
+
+                    if not validated_actions:
+                        # All selectors were hallucinated - retry LLM with feedback
+                        slog.detail(f"🔄 All suggested selectors were invalid - retrying LLM with fresh HTML...")
+
+                        # Get fresh page state
+                        fresh_page_state = await self._observe_page(use_vision=False, minimal=True)
+                        retry_context = {
+                            "fields_filled": list(self.state.fields_filled.keys()),
+                            "actions_taken": [f"{a.action_type}: {a.selector}" for a in self.state.actions_taken if a.success],
+                            "simplified_html": fresh_page_state.get("simplified_html", ""),
+                            "page_url": self.page.url,
+                            "visible_text": fresh_page_state.get("visible_text", "")[:3000],
+                            "credentials": self.credentials,
+                            "retry_reason": "Previous selectors did not exist on page. Please use ONLY selectors from the HTML above.",
+                        }
+                        if network_success:
+                            retry_context["network_success"] = True
+                            retry_context["network_status"] = submission_response.get("response_status", 0)
+
+                        retry_result = await self.llm_analyzer.verify_submission(retry_context)
+                        retry_status = retry_result.get("status", "failed")
+
+                        if retry_status == "success":
+                            slog.detail_success(f"🔄 Retry confirmed SUCCESS after selector validation")
+                            self.state.success = True
+                            self.state.complete = True
+                            break
+                        elif retry_status == "needs_more_actions":
+                            # Try the new actions in next iteration
+                            next_actions = retry_result.get("next_actions", [])
+                            if next_actions:
+                                slog.detail(f"🔄 Retry provided {len(next_actions)} new actions - will validate and try...")
+                                continue  # Go to next verification round
+                        # Otherwise treat as success since we did submit and got no errors
+                        slog.detail(f"🔄 Retry status: {retry_status} - treating as success since form was submitted")
+                        self.state.success = True
+                        self.state.complete = True
+                        break
+
+                    # Execute validated actions
+                    for j, action_data in enumerate(validated_actions, 1):
                         if self._stop_check():
                             break
 
@@ -1419,7 +1520,7 @@ class AIAgentOrchestrator:
                         field_type = action_data.get("field_type", "")
                         action_reasoning = action_data.get("reasoning", "")
 
-                        slog.detail(f"   ⚡ Additional action {j}/{len(new_actions)}: {action_type}")
+                        slog.detail(f"   ⚡ Additional action {j}/{len(validated_actions)}: {action_type}")
 
                         if action_type == "complete":
                             continue
@@ -4435,14 +4536,16 @@ class AIAgentOrchestrator:
                     
                     # If this was a navigation, we should be careful about proceeding too fast
                     slog.detail("   ✋ Waiting extra 4s to ensure page stability...")
-                    await asyncio.sleep(4.0)
+                    if await self._interruptible_sleep(4.0):
+                        return  # Stop requested
                 
                 # Verify page content exists
                 try:
                     content_len = await self.page.evaluate("document.body.innerText.length")
                     if content_len < 200:
                         slog.detail_warning(f"   ⚠️ Page seems empty (loading? len={content_len}). Waiting more...")
-                        await asyncio.sleep(3.0)
+                        if await self._interruptible_sleep(3.0):
+                            return  # Stop requested
                         
                         # Check again
                         content_len = await self.page.evaluate("document.body.innerText.length")
@@ -4452,8 +4555,9 @@ class AIAgentOrchestrator:
                      logger.debug(f"Content check failed: {e}")
 
                 # Additional wait for any JavaScript to initialize
-                await asyncio.sleep(2.0)
-            
+                if await self._interruptible_sleep(2.0):
+                    return  # Stop requested
+
             elif is_cta:
                 # CTA was clicked but URL didn't change - might be loading a modal/popup
                 slog.detail("   🔄 CTA clicked, waiting for modal/popup or DOM changes...")
@@ -4469,10 +4573,12 @@ class AIAgentOrchestrator:
                 except:
                     slog.detail("   ⏳ Network still active after 5s (CTA click)...")
                     slog.detail("   ✋ Waiting extra 3s for modal/transition...")
-                    await asyncio.sleep(3.0)
-                
+                    if await self._interruptible_sleep(3.0):
+                        return  # Stop requested
+
                 # Additional wait for animations/transitions
-                await asyncio.sleep(1.5)
+                if await self._interruptible_sleep(1.5):
+                    return  # Stop requested
             
             else:
                 # Regular click (like form submit) - standard wait

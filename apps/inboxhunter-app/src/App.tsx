@@ -119,16 +119,25 @@ function ThemeToggle() {
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
-  const { 
+  const {
     isRunning, startBot, stopBot, logs, dbVersion,
-    updateState, setUpdateState, addUpdateLog, openUpdateModal, closeUpdateModal 
+    updateState, setUpdateState, addUpdateLog, openUpdateModal, closeUpdateModal,
+    batchProgress
   } = useAppStore()
   const [processedStats, setProcessedStats] = useState<ProcessedStats>({ total: 0, successful: 0, failed: 0, skipped: 0 })
   const [scrapedStats, setScrapedStats] = useState<ScrapedStats>({ total: 0, processed: 0, pending: 0 })
   const [refreshing, setRefreshing] = useState(false)
   const [showUpdateBanner, setShowUpdateBanner] = useState(true)
+  const [isStopping, setIsStopping] = useState(false)
   const updateUnlistenRef = useRef<(() => void) | null>(null)
-  
+
+  // Reset isStopping when bot actually stops
+  useEffect(() => {
+    if (!isRunning && isStopping) {
+      setIsStopping(false)
+    }
+  }, [isRunning, isStopping])
+
   // Check for updates on app start
   useEffect(() => {
     const checkForUpdates = async () => {
@@ -376,8 +385,8 @@ function App() {
     if (logs.length > 0) {
       const lastLog = logs[logs.length - 1]
       // Check if the log indicates a completed action (success, failed, skipped)
-      const triggerKeywords = ['✅', '❌', '⏭️', 'success', 'failed', 'skipped', 'Saved', 'Found']
-      if (triggerKeywords.some(kw => lastLog.message.includes(kw))) {
+      const triggerKeywords = ['✅', '❌', '⏭️', 'success', 'failed', 'skipped', 'Saved', 'Found', 'deleted', 'cleared']
+      if (triggerKeywords.some(kw => lastLog.message.toLowerCase().includes(kw.toLowerCase()))) {
         // Debounce by checking if we recently fetched
         fetchStats()
       }
@@ -638,14 +647,29 @@ function App() {
 
           {/* Start/Stop Button */}
           <button
-            onClick={isRunning ? stopBot : startBot}
+            onClick={() => {
+              if (isRunning && !isStopping) {
+                setIsStopping(true)
+                stopBot()
+              } else if (!isRunning) {
+                startBot()
+              }
+            }}
+            disabled={isStopping}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-              isRunning
-                ? 'bg-red-500/20 text-red-500 dark:text-red-400 hover:bg-red-500/30'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90'
+              isStopping
+                ? 'bg-orange-500/20 text-orange-500 dark:text-orange-400 cursor-not-allowed opacity-70'
+                : isRunning
+                  ? 'bg-red-500/20 text-red-500 dark:text-red-400 hover:bg-red-500/30'
+                  : 'bg-primary text-primary-foreground hover:bg-primary/90'
             }`}
           >
-            {isRunning ? (
+            {isStopping ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Stopping...
+              </>
+            ) : isRunning ? (
               <>
                 <Square className="w-4 h-4" />
                 Stop
@@ -687,6 +711,40 @@ function App() {
 
           {/* Stats Summary */}
           <div className="mt-auto space-y-3">
+            {/* Batch Progress Bar */}
+            {isRunning && batchProgress.total > 0 && (
+              <div className="p-4 rounded-lg bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20">
+                <div className="flex items-center justify-between text-sm mb-2">
+                  <span className="font-medium text-foreground">Progress</span>
+                  <span className="text-muted-foreground">
+                    {batchProgress.current}/{batchProgress.total}
+                  </span>
+                </div>
+                {/* Progress bar */}
+                <div className="h-2 bg-muted rounded-full overflow-hidden mb-2">
+                  <div
+                    className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300 ease-out"
+                    style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
+                  />
+                </div>
+                {/* Percentage and current URL */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-blue-600 dark:text-blue-400 font-medium">
+                    {Math.round((batchProgress.current / batchProgress.total) * 100)}%
+                  </span>
+                  <span className="text-muted-foreground truncate ml-2 max-w-[140px]" title={batchProgress.currentUrl}>
+                    {(() => {
+                      try {
+                        return batchProgress.currentUrl ? new URL(batchProgress.currentUrl).hostname : ''
+                      } catch {
+                        return batchProgress.currentUrl?.slice(0, 20) || ''
+                      }
+                    })()}
+                  </span>
+                </div>
+              </div>
+            )}
+
             {/* Processed Stats */}
             <div className="p-4 rounded-lg bg-muted/50">
               <div className="flex items-center justify-between text-sm text-muted-foreground mb-3">

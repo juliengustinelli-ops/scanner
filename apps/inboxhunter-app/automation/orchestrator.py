@@ -173,6 +173,20 @@ class InboxHunterBot:
             self._stop_requested = True  # Cache it so we don't keep checking
             return True
         return False
+
+    async def _interruptible_sleep(self, seconds: float, check_interval: float = 0.5) -> bool:
+        """
+        Sleep for the given duration but check stop signal periodically.
+        Returns True if interrupted by stop signal, False if completed normally.
+        """
+        elapsed = 0.0
+        while elapsed < seconds:
+            if self._stop_check():
+                return True  # Interrupted
+            sleep_time = min(check_interval, seconds - elapsed)
+            await asyncio.sleep(sleep_time)
+            elapsed += sleep_time
+        return False  # Completed normally
     
     async def run(self):
         """Main bot execution loop."""
@@ -226,7 +240,10 @@ class InboxHunterBot:
                 if consecutive_failures >= max_failures:
                     slog.detail_warning(f"❌ Too many consecutive failures ({consecutive_failures})")
                     slog.detail("Cooling down for 60 seconds...")
-                    await asyncio.sleep(60)
+                    # Use interruptible sleep so stop signal can break out early
+                    if await self._interruptible_sleep(60):
+                        slog.detail("⏹ Stop requested during cooldown - stopping bot")
+                        break
                     consecutive_failures = 0
                 
                 url = url_data.get("url", "")
@@ -248,7 +265,12 @@ class InboxHunterBot:
                 
                 # Process the URL
                 result = await self._process_url(url, source)
-                
+
+                # Check stop immediately after processing (might have been set during long operation)
+                if self._stop_check() and result is not True:
+                    slog.detail("⏹ Stop detected after URL processing - stopping bot")
+                    break
+
                 # result can be: True (success), False (failed), None (interrupted), "quick_skip" (no form)
                 if result is None:
                     # Processing was interrupted by stop request

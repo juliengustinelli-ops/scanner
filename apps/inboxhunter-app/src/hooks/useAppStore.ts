@@ -23,6 +23,7 @@ interface Settings {
   headless: boolean
   debug: boolean
   detailedLogs: boolean  // Simple logs by default, detailed for debugging
+  showDebugLogsInUI: boolean  // Show debug logs in UI (can impact performance)
   minDelay: number
   maxDelay: number
   llmModel: string
@@ -36,6 +37,12 @@ interface Stats {
   skipped: number
   captchasSolved: number
   elapsedTime: number
+}
+
+interface BatchProgress {
+  current: number
+  total: number
+  currentUrl: string
 }
 
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'error'
@@ -64,37 +71,42 @@ interface LogEntry {
 interface AppState {
   // Bot State
   isRunning: boolean
-  
+
   // Database update trigger - increments on any DB change
   dbVersion: number
   triggerDbRefresh: () => void
-  
+
+  // Batch Progress (for progress bar)
+  batchProgress: BatchProgress
+  setBatchProgress: (progress: Partial<BatchProgress>) => void
+  resetBatchProgress: () => void
+
   // Credentials
   credentials: Credentials
   setCredentials: (credentials: Partial<Credentials>) => void
-  
+
   // API Keys
   apiKeys: APIKeys
   setAPIKeys: (keys: Partial<APIKeys>) => void
-  
+
   // Settings
   settings: Settings
   setSettings: (settings: Partial<Settings>) => void
-  
+
   // Stats
   stats: Stats
   setStats: (stats: Partial<Stats>) => void
   resetStats: () => void
-  
+
   // Logs
   logs: LogEntry[]
   addLog: (level: LogEntry['level'], message: string) => void
   clearLogs: () => void
-  
+
   // Bot Control
   startBot: () => void
   stopBot: () => void
-  
+
   // Update State
   updateState: UpdateState
   setUpdateState: (state: Partial<UpdateState>) => void
@@ -126,6 +138,7 @@ const initialSettings: Settings = {
   headless: false,
   debug: false,
   detailedLogs: false,  // Simple logs by default
+  showDebugLogsInUI: false,  // Disabled by default for performance
   minDelay: 10,
   maxDelay: 30,
   llmModel: 'gpt-4o-mini',
@@ -139,6 +152,12 @@ const initialStats: Stats = {
   skipped: 0,
   captchasSolved: 0,
   elapsedTime: 0,
+}
+
+const initialBatchProgress: BatchProgress = {
+  current: 0,
+  total: 0,
+  currentUrl: '',
 }
 
 const initialUpdateState: UpdateState = {
@@ -160,11 +179,20 @@ export const useAppStore = create<AppState>()(
       apiKeys: initialAPIKeys,
       settings: initialSettings,
       stats: initialStats,
+      batchProgress: initialBatchProgress,
       logs: [],
       updateState: initialUpdateState,
-      
+
       // Database refresh trigger
       triggerDbRefresh: () => set((state) => ({ dbVersion: state.dbVersion + 1 })),
+
+      // Batch Progress
+      setBatchProgress: (progress) =>
+        set((state) => ({
+          batchProgress: { ...state.batchProgress, ...progress },
+        })),
+
+      resetBatchProgress: () => set({ batchProgress: initialBatchProgress }),
       
       // Credentials
       setCredentials: (credentials) =>
@@ -324,6 +352,7 @@ export const useAppStore = create<AppState>()(
         }
         
         state.resetStats()
+        get().resetBatchProgress()
         state.addLog('info', '🚀 Starting InboxHunter Bot...')
         
         try {
@@ -332,26 +361,82 @@ export const useAppStore = create<AppState>()(
             const { invoke } = await import('@tauri-apps/api/tauri')
             const { listen } = await import('@tauri-apps/api/event')
             
+            // Batched log queue to reduce React re-renders
+            let logQueue: Array<{ level: string; message: string }> = []
+            let flushTimeout: ReturnType<typeof setTimeout> | null = null
+            const FLUSH_INTERVAL = 200 // Flush every 200ms max
+
+            const flushLogs = () => {
+              if (logQueue.length === 0) return
+              const logsToAdd = logQueue.slice(-50) // Only add last 50 from batch
+              logQueue = []
+              flushTimeout = null
+
+              // Add all logs at once to reduce re-renders
+              set((currentState) => ({
+                logs: [
+                  ...currentState.logs.slice(-(500 - logsToAdd.length)),
+                  ...logsToAdd.map(log => ({
+                    timestamp: new Date().toLocaleTimeString(),
+                    level: log.level as any,
+                    message: log.message,
+                  }))
+                ]
+              }))
+            }
+
             // Listen for log events from the bot
             const unlistenLog = await listen<{ level: string; message: string }>('bot-log', (event) => {
               const { level, message } = event.payload
-              
+
+              // Skip debug logs in UI unless explicitly enabled (they still go to file)
+              // This is a major performance improvement when disabled
+              if (level === 'debug' && !get().settings.showDebugLogsInUI) return
+
               // Check for special data source change signal
               if (message.includes('DATASOURCE_CHANGE:database')) {
-                // Update the settings to use database as the data source
                 set((state) => ({
                   settings: { ...state.settings, dataSource: 'database' }
                 }))
-                // Don't log the raw signal message - it's an internal command
                 get().addLog('success', '🔄 Data source switched to: Database')
                 return
               }
-              
-              get().addLog(level as any, message)
+
+              // Parse progress from log messages like "[14/50] https://example.com"
+              const progressMatch = message.match(/\[(\d+)\/(\d+)\]\s*(.*)/)
+              if (progressMatch) {
+                const current = parseInt(progressMatch[1], 10)
+                const total = parseInt(progressMatch[2], 10)
+                const url = progressMatch[3].trim()
+                get().setBatchProgress({ current, total, currentUrl: url })
+              }
+
+              // Queue log instead of immediate state update
+              logQueue.push({ level, message })
+
+              // Important logs (success, error, warning) flush immediately for responsiveness
+              // Info logs batch for performance
+              if (level === 'success' || level === 'error' || level === 'warning') {
+                if (flushTimeout) {
+                  clearTimeout(flushTimeout)
+                  flushTimeout = null
+                }
+                flushLogs()
+              } else if (!flushTimeout) {
+                // Schedule flush for info logs
+                flushTimeout = setTimeout(flushLogs, FLUSH_INTERVAL)
+              }
             })
             
             // Listen for bot stopped event
             const unlistenStop = await listen('bot-stopped', () => {
+              // Flush any remaining logs
+              if (flushTimeout) {
+                clearTimeout(flushTimeout)
+                flushTimeout = null
+              }
+              flushLogs()
+
               set({ isRunning: false })
               get().addLog('info', '⏹ Bot process ended')
               unlistenLog()
@@ -382,8 +467,15 @@ export const useAppStore = create<AppState>()(
             state.addLog('warning', '⚠️ Running in demo mode (not in Tauri)')
           }
         } catch (error) {
-          state.addLog('error', `Failed to start bot: ${error}`)
-          set({ isRunning: false })
+          const errorStr = String(error).toLowerCase()
+          // If bot is already running, sync the UI state
+          if (errorStr.includes('already running')) {
+            state.addLog('warning', '⚠️ Bot is already running')
+            set({ isRunning: true })
+          } else {
+            state.addLog('error', `Failed to start bot: ${error}`)
+            set({ isRunning: false })
+          }
         }
       },
       

@@ -1282,9 +1282,19 @@ CREDENTIALS TO USE FOR NEW FIELDS:
 This is a STRONG indicator that the form was successfully submitted to the server.
 If you don't see error messages, this likely means SUCCESS."""
 
+        # Check if this is a retry with feedback
+        retry_reason = context.get("retry_reason", "")
+        retry_info = ""
+        if retry_reason:
+            retry_info = f"""
+⚠️ RETRY REQUEST: {retry_reason}
+Be extra careful to only use selectors that actually appear in the HTML below!
+"""
+
         return f"""You are verifying if a form submission was successful or if more steps are needed.
 {creds_str}
 {network_info}
+{retry_info}
 WHAT WE DID:
 Fields filled:
 {fields_str}

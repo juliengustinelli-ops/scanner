@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import {
   CheckCircle2,
   XCircle,
@@ -13,7 +13,6 @@ import {
 } from 'lucide-react'
 import { useAppStore } from '../hooks/useAppStore'
 import { useTheme } from '../hooks/useTheme'
-import { motion } from 'framer-motion'
 
 interface DashboardProps {
   onViewLogs?: () => void
@@ -30,6 +29,7 @@ export function Dashboard({ onViewLogs }: DashboardProps) {
   const { isRunning, logs, startBot } = useAppStore()
   const { resolvedTheme } = useTheme()
   const logContainerRef = useRef<HTMLDivElement>(null)
+  const lastFetchRef = useRef<number>(0)
   const [dbStats, setDbStats] = useState<ProcessedStats>({ total: 0, successful: 0, failed: 0, skipped: 0 })
   const [refreshing, setRefreshing] = useState(false)
   const [retrying, setRetrying] = useState(false)
@@ -86,14 +86,19 @@ export function Dashboard({ onViewLogs }: DashboardProps) {
     }
   }, [isRunning, fetchStats])
 
-  // Refresh stats when logs indicate a URL was processed (real-time updates)
+  // Refresh stats when logs indicate a URL was processed (debounced to prevent excessive calls)
   useEffect(() => {
     if (logs.length > 0) {
       const lastLog = logs[logs.length - 1]
       // Check if the log indicates a completed action
       const triggerKeywords = ['✅', '❌', '⏭️', 'success', 'failed', 'skipped', 'Saved', 'Found']
       if (triggerKeywords.some(kw => lastLog.message.includes(kw))) {
-        fetchStats()
+        // Debounce: only fetch if at least 500ms since last fetch
+        const now = Date.now()
+        if (now - lastFetchRef.current > 500) {
+          lastFetchRef.current = now
+          fetchStats()
+        }
       }
     }
   }, [logs.length, fetchStats])
@@ -111,8 +116,16 @@ export function Dashboard({ onViewLogs }: DashboardProps) {
     setRefreshing(false)
   }
 
-  // Get recent logs for the mini console
-  const recentLogs = logs.slice(-30)
+  // Get recent logs for the mini console - memoized to prevent recalculation
+  const recentLogs = useMemo(() => logs.slice(-30), [logs])
+
+  // Memoize log counts to avoid expensive filter operations on every render
+  const logCounts = useMemo(() => ({
+    success: logs.filter(l => l.level === 'success').length,
+    error: logs.filter(l => l.level === 'error').length,
+    warning: logs.filter(l => l.level === 'warning').length,
+    total: logs.length
+  }), [logs])
 
   const getLogColor = (level: string) => {
     switch (level) {
@@ -245,17 +258,15 @@ export function Dashboard({ onViewLogs }: DashboardProps) {
           {recentLogs.length > 0 ? (
             <div className="space-y-0.5">
               {recentLogs.map((log, index) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
+                <div
+                  key={`${log.timestamp}-${index}`}
                   className="flex items-start gap-2 py-0.5 hover:bg-black/5 dark:hover:bg-white/5 px-1 -mx-1 rounded"
                 >
                   <span className="text-muted-foreground/50 shrink-0 w-14 text-[10px]">{log.timestamp.split(' ')[0]}</span>
                   <span className={`${getLogColor(log.level)} whitespace-pre-wrap break-words leading-relaxed`}>
                     {log.message}
                   </span>
-                </motion.div>
+                </div>
               ))}
             </div>
           ) : (
@@ -273,17 +284,17 @@ export function Dashboard({ onViewLogs }: DashboardProps) {
         }`}>
           <span className="flex items-center gap-1">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400" />
-            {logs.filter(l => l.level === 'success').length}
+            {logCounts.success}
           </span>
           <span className="flex items-center gap-1">
             <div className="w-1.5 h-1.5 rounded-full bg-red-500 dark:bg-red-400" />
-            {logs.filter(l => l.level === 'error').length}
+            {logCounts.error}
           </span>
           <span className="flex items-center gap-1">
             <div className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400" />
-            {logs.filter(l => l.level === 'warning').length}
+            {logCounts.warning}
           </span>
-          <span className="ml-auto">{logs.length} entries</span>
+          <span className="ml-auto">{logCounts.total} entries</span>
         </div>
       </div>
     </div>
