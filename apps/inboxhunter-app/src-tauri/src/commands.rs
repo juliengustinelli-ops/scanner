@@ -99,6 +99,9 @@ pub struct ProcessedURL {
     pub error_message: Option<String>,
     pub error_category: Option<String>,
     pub details: Option<String>,
+    pub screenshot_path: Option<String>,
+    pub confirmation_data: Option<String>,
+    pub network_data: Option<String>,
     pub processed_at: String,
 }
 
@@ -333,11 +336,36 @@ fn find_sidecar_binary(app: &AppHandle) -> Option<PathBuf> {
 /// Get path to automation folder - checks multiple locations
 fn get_automation_path(app: &AppHandle) -> Option<PathBuf> {
     let exe_path = std::env::current_exe().ok()?;
-    
+
     println!("🔍 Looking for automation scripts...");
     println!("   Executable: {:?}", exe_path);
-    
-    // 1. Check bundled resources (for local builds)
+
+    // Detect if we're in dev mode
+    let is_dev_mode = exe_path
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|n| n == "debug" || n == "release")
+        .unwrap_or(false);
+
+    // In dev mode: PRIORITIZE source code folder
+    if is_dev_mode {
+        let project_root = exe_path
+            .parent() // target/debug or release
+            .and_then(|p| p.parent()) // target
+            .and_then(|p| p.parent()) // src-tauri
+            .and_then(|p| p.parent()); // project root
+
+        if let Some(root) = project_root {
+            let automation_path = root.join("automation");
+            println!("   Checking source code path (dev mode): {:?}", automation_path);
+            if automation_path.exists() && automation_path.join("main.py").exists() {
+                println!("   ✅ Found source code automation folder (dev mode)");
+                return Some(automation_path);
+            }
+        }
+    }
+
+    // Production mode or dev mode fallback: Check bundled resources
     #[cfg(target_os = "macos")]
     {
         if let Some(macos_dir) = exe_path.parent() {
@@ -349,7 +377,7 @@ fn get_automation_path(app: &AppHandle) -> Option<PathBuf> {
                     println!("   ✅ Found automation in Resources/_up_");
                     return Some(up_path);
                 }
-                
+
                 // Check Resources/automation
                 let res_path = contents_dir.join("Resources").join("automation");
                 println!("   Checking macOS Resources: {:?}", res_path);
@@ -360,7 +388,7 @@ fn get_automation_path(app: &AppHandle) -> Option<PathBuf> {
             }
         }
     }
-    
+
     #[cfg(target_os = "windows")]
     {
         if let Some(exe_dir) = exe_path.parent() {
@@ -370,21 +398,21 @@ fn get_automation_path(app: &AppHandle) -> Option<PathBuf> {
                 println!("   ✅ Found automation in _up_");
                 return Some(up_path);
             }
-            
+
             // Check resources/automation
             let resources_path = exe_dir.join("resources").join("automation");
             if resources_path.exists() && resources_path.join("main.py").exists() {
                 println!("   ✅ Found automation in resources");
                 return Some(resources_path);
             }
-            
+
             // Check resources/_up_/automation
             let resources_up_path = exe_dir.join("resources").join("_up_").join("automation");
             if resources_up_path.exists() && resources_up_path.join("main.py").exists() {
                 println!("   ✅ Found automation in resources/_up_");
                 return Some(resources_up_path);
             }
-            
+
             // Check automation directly
             let direct_path = exe_dir.join("automation");
             if direct_path.exists() && direct_path.join("main.py").exists() {
@@ -393,7 +421,7 @@ fn get_automation_path(app: &AppHandle) -> Option<PathBuf> {
             }
         }
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         if let Some(exe_dir) = exe_path.parent() {
@@ -403,7 +431,7 @@ fn get_automation_path(app: &AppHandle) -> Option<PathBuf> {
                 println!("   ✅ Found automation in _up_");
                 return Some(up_path);
             }
-            
+
             // Check automation directly
             let direct_path = exe_dir.join("automation");
             if direct_path.exists() && direct_path.join("main.py").exists() {
@@ -412,8 +440,8 @@ fn get_automation_path(app: &AppHandle) -> Option<PathBuf> {
             }
         }
     }
-    
-    // 2. Try Tauri's resource resolver
+
+    // Try Tauri's resource resolver
     if let Some(resource_path) = app.path_resolver().resolve_resource("automation/main.py") {
         if resource_path.exists() {
             if let Some(automation_dir) = resource_path.parent() {
@@ -422,23 +450,7 @@ fn get_automation_path(app: &AppHandle) -> Option<PathBuf> {
             }
         }
     }
-    
-    // 3. Development mode: go up from target/debug to find project root
-    let project_root = exe_path
-        .parent() // target/debug or release
-        .and_then(|p| p.parent()) // target
-        .and_then(|p| p.parent()) // src-tauri
-        .and_then(|p| p.parent()); // project root
-    
-    if let Some(root) = project_root {
-        let automation_path = root.join("automation");
-        println!("   Checking dev path: {:?}", automation_path);
-        if automation_path.exists() && automation_path.join("main.py").exists() {
-            println!("   ✅ Found development automation folder");
-            return Some(automation_path);
-        }
-    }
-    
+
     println!("   ❌ Could not find automation folder");
     None
 }
@@ -586,12 +598,95 @@ pub async fn start_bot(
     
     println!("🚀 Starting bot...");
     println!("   Config: {}", config_path.display());
-    
+
     // Get app version from tauri.conf.json to pass to Python
     let app_version = app.package_info().version.to_string();
 
-    // Try to find sidecar binary first (CI production builds)
-    if let Some(sidecar_path) = find_sidecar_binary(&app) {
+    // Detect if we're in dev mode (running from target/debug or target/release)
+    let exe_path = std::env::current_exe().ok();
+    let is_dev_mode = exe_path.as_ref()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.file_name())
+        .map(|n| n == "debug" || n == "release")
+        .unwrap_or(false);
+
+    if is_dev_mode {
+        println!("🔧 Development mode detected - prioritizing Python source code");
+    }
+
+    // In dev mode: try Python first (for instant code updates)
+    // In production: try sidecar first (self-contained executable)
+    let sidecar_path = find_sidecar_binary(&app);
+    let automation_path = get_automation_path(&app);
+
+    let use_python_first = is_dev_mode && automation_path.is_some();
+    let use_sidecar_first = !is_dev_mode && sidecar_path.is_some();
+
+    if use_python_first || (automation_path.is_some() && sidecar_path.is_none()) {
+        // Python mode: Use bundled or development automation scripts
+        let automation_path = automation_path.unwrap();
+        println!("🐍 Running with Python automation scripts (live code)");
+
+        let python_cmd = find_dev_python(&automation_path)
+            .ok_or("Python not found. Please install Python 3.9+ and set up the virtual environment:\ncd automation && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && playwright install chromium")?;
+
+        let main_script = automation_path.join("main.py");
+
+        // Add script as first argument for Python
+        let mut python_args = vec![main_script.to_string_lossy().to_string()];
+        python_args.extend(args.clone());
+
+        println!("   Python: {}", python_cmd);
+        println!("   Script: {}", main_script.display());
+        println!("   ✨ Code changes will take effect immediately!");
+
+        let mut cmd = Command::new(&python_cmd);
+        cmd.args(&python_args)
+            .current_dir(&automation_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            // Force UTF-8 encoding for Python stdout/stderr (fixes emoji on Windows)
+            .env("PYTHONIOENCODING", "utf-8")
+            .env("PYTHONUTF8", "1")
+            // Pass app version from tauri.conf.json
+            .env("INBOXHUNTER_VERSION", &app_version);
+
+        // On Unix, create a new process group so we can kill the entire tree
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+
+        // On Windows, hide the console window
+        #[cfg(windows)]
+        {
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let mut child = cmd.spawn()
+            .map_err(|e| format!("Failed to start bot: {}", e))?;
+
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+
+        // Store process
+        {
+            let mut process = state.bot_process.lock().map_err(|e| e.to_string())?;
+            *process = Some(child);
+        }
+
+        // Mark as running
+        {
+            let mut running = state.bot_running.lock().map_err(|e| e.to_string())?;
+            *running = true;
+        }
+
+        // Stream stdout
+        spawn_log_reader(stdout, stderr, app);
+
+    } else if use_sidecar_first || (sidecar_path.is_some() && automation_path.is_none()) {
+        let sidecar_path = sidecar_path.unwrap();
         println!("📦 Running with sidecar binary (self-contained mode)");
         println!("   Sidecar: {}", sidecar_path.display());
 
@@ -638,68 +733,7 @@ pub async fn start_bot(
         
         // Stream stdout
         spawn_log_reader(stdout, stderr, app);
-        
-    } else if let Some(automation_path) = get_automation_path(&app) {
-        // Python mode: Use bundled or development automation scripts
-        println!("📦 Running with Python automation scripts");
-        
-        let python_cmd = find_dev_python(&automation_path)
-            .ok_or("Python not found. Please install Python 3.9+ and set up the virtual environment:\ncd automation && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && playwright install chromium")?;
-        
-        let main_script = automation_path.join("main.py");
-        
-        // Add script as first argument for Python
-        let mut python_args = vec![main_script.to_string_lossy().to_string()];
-        python_args.extend(args);
-        
-        println!("   Python: {}", python_cmd);
-        println!("   Script: {}", main_script.display());
-        
-        let mut cmd = Command::new(&python_cmd);
-        cmd.args(&python_args)
-        .current_dir(&automation_path)
-        .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            // Force UTF-8 encoding for Python stdout/stderr (fixes emoji on Windows)
-            .env("PYTHONIOENCODING", "utf-8")
-            .env("PYTHONUTF8", "1")
-            // Pass app version from tauri.conf.json
-            .env("INBOXHUNTER_VERSION", &app_version);
-        
-        // On Unix, create a new process group so we can kill the entire tree
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            cmd.process_group(0);
-        }
-        
-        // On Windows, hide the console window
-        #[cfg(windows)]
-        {
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
-        
-        let mut child = cmd.spawn()
-        .map_err(|e| format!("Failed to start bot: {}", e))?;
-    
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    
-        // Store process
-    {
-        let mut process = state.bot_process.lock().map_err(|e| e.to_string())?;
-        *process = Some(child);
-    }
-    
-    // Mark as running
-    {
-        let mut running = state.bot_running.lock().map_err(|e| e.to_string())?;
-        *running = true;
-    }
-    
-        // Stream stdout/stderr
-        spawn_log_reader(stdout, stderr, app);
-        
+
     } else {
         return Err(
             "Could not find automation scripts or sidecar binary.\n\n\

@@ -80,6 +80,8 @@ class AgentState:
         self.stuck_loop_detected: bool = False  # Flag when stuck in a loop
         # NEW: Track selectors that don't exist on the page (hallucinations)
         self.non_existent_selectors: set = set()  # Blocklist of selectors that were proven to not exist
+        # Proof of submission
+        self.submission_proof: Dict[str, Any] = {}  # Screenshot, confirmation messages, network data
     
     def add_action(self, action: AgentAction, field_type: str = None):
         self.actions_taken.append(action)
@@ -1358,7 +1360,7 @@ class AIAgentOrchestrator:
                 }
 
             # Build result
-            result = self._build_final_result()
+            result = await self._build_final_result()
             if result["success"]:
                 slog.detail_success(f"✅ Batch execution completed: {executed_count} actions, SUCCESS")
             else:
@@ -1422,7 +1424,7 @@ class AIAgentOrchestrator:
             self.state.add_action(next_action)
             self.state.current_step += 1
 
-        return self._build_final_result()
+        return await self._build_final_result()
 
     def _get_value_for_field_type(self, field_type: str) -> str:
         """Get the appropriate credential value for a field type."""
@@ -1443,7 +1445,7 @@ class AIAgentOrchestrator:
         else:
             return ""
 
-    def _build_final_result(self) -> Dict[str, Any]:
+    async def _build_final_result(self) -> Dict[str, Any]:
         """Build the final result dictionary for batch/regular execution."""
         errors = []
         if not self.state.success:
@@ -1453,7 +1455,23 @@ class AIAgentOrchestrator:
                     if action.error_message not in errors:
                         errors.append(action.error_message)
 
-        return {
+        # FALLBACK: Capture proof if successful but not yet captured
+        # This handles cases where form_submitted wasn't properly detected
+        # Only capture if we actually received a POST/PUT response (not validation errors)
+        submission_response = getattr(self.state, 'submission_response', None) or {}
+        got_response = submission_response.get("response_received", False)
+        if self.state.success and not self.state.submission_proof and len(self.state.fields_filled) > 0 and got_response:
+            logger.debug("📊 Capturing proof after successful signup (fallback)")
+            try:
+                proof = await self._capture_submission_proof()
+                self.state.submission_proof = proof
+                logger.debug(f"✅ Fallback proof captured: screenshot={bool(proof.get('screenshot_path'))}, confirmation={bool(proof.get('confirmation_data'))}, network={bool(proof.get('network_data'))}")
+            except Exception as e:
+                logger.error(f"❌ Fallback proof capture failed: {e}", exc_info=True)
+        elif self.state.success and not self.state.submission_proof and not got_response:
+            logger.debug("⚠️ Skipping fallback proof capture - no POST response was received")
+
+        result = {
             "success": self.state.success,
             "fields_filled": list(self.state.fields_filled.keys()),
             "field_types_filled": self.state.get_filled_field_types(),
@@ -1465,6 +1483,12 @@ class AIAgentOrchestrator:
             "captcha_attempted": getattr(self.state, 'captcha_attempted', False),
             "captcha_solved": getattr(self.state, 'captcha_solved', False)
         }
+
+        # Include submission proof if available
+        if self.state.submission_proof:
+            result["submission_proof"] = self.state.submission_proof
+
+        return result
 
     async def _capture_screenshot(self) -> Optional[str]:
         """Capture full page screenshot as base64 for comprehensive AI visibility."""
@@ -1484,6 +1508,177 @@ class AIAgentOrchestrator:
                 return base64.b64encode(screenshot_bytes).decode('utf-8')
             except:
                 return None
+
+    async def _capture_submission_proof(self) -> Dict[str, Any]:
+        """
+        Capture proof of submission: screenshot, confirmation messages, and network data.
+        Called after form submission to verify success.
+        """
+        proof = {
+            "screenshot_path": None,
+            "confirmation_data": None,
+            "network_data": None
+        }
+
+        try:
+            # Wait for DOM to stabilize using event-based detection
+            # This waits for any DOM changes to complete (no arbitrary sleep)
+            try:
+                await self.page.wait_for_function(
+                    """() => {
+                        // Check if page has settled (no pending mutations)
+                        return document.readyState === 'complete';
+                    }""",
+                    timeout=3000
+                )
+            except:
+                pass  # Continue even if timeout - page might still be ready
+
+            # 1. Capture screenshot
+            slog.detail("📸 Capturing post-submission screenshot...")
+            try:
+                screenshot_base64 = await self._capture_screenshot()
+                if screenshot_base64:
+                    # Store the full base64 screenshot in screenshot_path
+                    proof["screenshot_path"] = screenshot_base64
+                    slog.detail("✅ Screenshot captured")
+            except Exception as e:
+                logger.debug(f"Screenshot capture failed: {e}")
+
+            # 2. Look for confirmation elements/messages
+            slog.detail("🔍 Detecting confirmation messages...")
+            try:
+                confirmation_indicators = await self.page.evaluate("""
+                    () => {
+                        const indicators = {
+                            success_messages: [],
+                            confirmation_elements: [],
+                            page_title: document.title,
+                            url: window.location.href
+                        };
+
+                        // Common success message selectors
+                        const successSelectors = [
+                            '[class*="success"]',
+                            '[class*="confirm"]',
+                            '[class*="thank"]',
+                            '[id*="success"]',
+                            '[id*="confirm"]',
+                            '.alert-success',
+                            '.message-success',
+                            '.notification-success'
+                        ];
+
+                        // Find elements with success indicators
+                        successSelectors.forEach(selector => {
+                            try {
+                                const elements = document.querySelectorAll(selector);
+                                elements.forEach(el => {
+                                    if (el.offsetParent !== null) {  // Visible check
+                                        const text = el.innerText?.trim();
+                                        if (text && text.length > 0 && text.length < 500) {
+                                            indicators.confirmation_elements.push({
+                                                selector: selector,
+                                                text: text.substring(0, 200)
+                                            });
+                                        }
+                                    }
+                                });
+                            } catch (e) {}
+                        });
+
+                        // Search for success keywords in visible text
+                        const bodyText = document.body.innerText;
+                        const successKeywords = [
+                            'thank you',
+                            'thanks for',
+                            'successfully',
+                            'confirmation',
+                            'confirmed',
+                            'subscribed',
+                            'signed up',
+                            'registered',
+                            'welcome',
+                            'check your email',
+                            'verify your email'
+                        ];
+
+                        successKeywords.forEach(keyword => {
+                            const regex = new RegExp(`.{0,50}${keyword}.{0,50}`, 'gi');
+                            const matches = bodyText.match(regex);
+                            if (matches) {
+                                matches.forEach(match => {
+                                    if (!indicators.success_messages.includes(match.trim())) {
+                                        indicators.success_messages.push(match.trim());
+                                    }
+                                });
+                            }
+                        });
+
+                        return indicators;
+                    }
+                """)
+
+                if confirmation_indicators:
+                    # Serialize to JSON string for database storage
+                    import json
+                    proof["confirmation_data"] = json.dumps(confirmation_indicators)
+                    success_count = len(confirmation_indicators.get("success_messages", [])) + \
+                                  len(confirmation_indicators.get("confirmation_elements", []))
+                    if success_count > 0:
+                        slog.detail(f"✅ Found {success_count} confirmation indicator(s)")
+                    else:
+                        slog.detail("ℹ️ No obvious confirmation messages found")
+
+            except Exception as e:
+                logger.debug(f"Confirmation detection failed: {e}")
+
+            # 3. Capture network response data
+            slog.detail("🌐 Checking page response status...")
+            try:
+                # Get current page response status
+                response_data = await self.page.evaluate("""
+                    () => {
+                        return {
+                            url: window.location.href,
+                            title: document.title,
+                            ready_state: document.readyState
+                        };
+                    }
+                """)
+
+                # Try to get performance navigation timing
+                try:
+                    perf_data = await self.page.evaluate("""
+                        () => {
+                            const perf = window.performance.getEntriesByType('navigation')[0];
+                            if (perf) {
+                                return {
+                                    response_start: perf.responseStart,
+                                    response_end: perf.responseEnd,
+                                    dom_complete: perf.domComplete,
+                                    load_event_end: perf.loadEventEnd
+                                };
+                            }
+                            return null;
+                        }
+                    """)
+                    if perf_data:
+                        response_data["performance"] = perf_data
+                except:
+                    pass
+
+                import json
+                proof["network_data"] = json.dumps(response_data)
+                slog.detail("✅ Network data captured")
+
+            except Exception as e:
+                logger.debug(f"Network data capture failed: {e}")
+
+        except Exception as e:
+            logger.error(f"Proof capture failed: {e}")
+
+        return proof
     
     async def _observe_page(self, use_vision: bool = True, minimal: bool = False) -> Dict[str, Any]:
         """Observe current page state.
@@ -3671,6 +3866,68 @@ class AIAgentOrchestrator:
         except Exception:
             return False
 
+    async def _click_and_wait_for_submission(self, element, url_before: str) -> dict:
+        """
+        Click a submit button and wait for the form submission to complete.
+        Uses PURE EVENT-BASED detection - no arbitrary timeouts.
+
+        Strategy: Set up event listeners BEFORE clicking, then click and wait for
+        network idle (which fires when all network activity stops, not after a fixed time).
+        """
+        submission_info = {
+            "response_received": False,
+            "response_status": None,
+            "response_url": None,
+            "navigation_occurred": False,
+            "url_after": None,
+        }
+
+        # Set up response listener BEFORE clicking to capture any POST/PUT
+        captured_response = None
+
+        def on_response(response):
+            nonlocal captured_response
+            if response.request.method in ["POST", "PUT"] and captured_response is None:
+                captured_response = response
+
+        # Attach listener
+        self.page.on("response", on_response)
+
+        try:
+            # Click the element
+            slog.detail("   🖱️ Clicking submit button...")
+            await element.click()
+
+            # Wait for network idle - this is EVENT-BASED
+            # It fires when there are no network connections for 500ms (Playwright's definition)
+            # NOT a fixed timeout - it responds to actual network quiescence
+            try:
+                await self.page.wait_for_load_state("networkidle", timeout=10000)
+            except:
+                pass  # Continue even if timeout - we'll check what we captured
+
+            # Check what events we captured
+            if captured_response:
+                submission_info["response_received"] = True
+                submission_info["response_status"] = captured_response.status
+                submission_info["response_url"] = captured_response.url
+                slog.detail(f"   ✅ Captured response: {captured_response.request.method} {captured_response.status}")
+
+            # Check if URL changed (navigation event)
+            if self.page.url != url_before:
+                submission_info["navigation_occurred"] = True
+                submission_info["url_after"] = self.page.url
+                slog.detail(f"   🔄 Navigation detected: → {self.page.url[:50]}...")
+
+            slog.detail("   ✅ Submission complete")
+
+        finally:
+            # Always remove the listener
+            self.page.remove_listener("response", on_response)
+
+        submission_info["url_after"] = self.page.url
+        return submission_info
+
     async def _execute_click(self, action: AgentAction) -> Dict[str, Any]:
         """Click an element with multiple fallback strategies."""
         try:
@@ -3712,12 +3969,17 @@ class AIAgentOrchestrator:
             is_cta = cta_score >= 2
             is_submit_keyword = any(kw in selector_lower or kw in reasoning_lower for kw in submit_keywords)
             
-            # Only mark as form submit if:
-            # 1. It matches submit keywords AND
-            # 2. We have filled at least one field (meaning we're actually submitting a form, not clicking a CTA)
+            # Mark as form submit if:
+            # 1. We have filled at least one field (meaning we're in a form submission flow) AND
+            # 2. Either: the selector contains submit keywords OR it's not clearly a CTA button
+            # This ensures we capture proof for ANY click after filling fields that isn't clearly a marketing CTA
             has_filled_fields = len(self.state.fields_filled) > 0
-            is_real_submit = is_submit_keyword and has_filled_fields and not is_cta
-            
+            is_real_submit = has_filled_fields and (is_submit_keyword or not is_cta)
+
+            # Debug: Log the submit detection logic
+            if has_filled_fields:
+                logger.debug(f"   🔍 Submit detection: filled={has_filled_fields}, submit_kw={is_submit_keyword}, is_cta={is_cta}, is_real_submit={is_real_submit}")
+
             # Track ANY click after filling fields (potential submit attempt)
             # This helps when the LLM detects success after a CTA click that wasn't technically marked as "submit"
             if has_filled_fields:
@@ -3754,12 +4016,27 @@ class AIAgentOrchestrator:
                     element = await self.page.wait_for_selector(self.state.active_form_submit_selector, timeout=3000)
                     if element and await element.is_visible():
                         await element.scroll_into_view_if_needed()
-                        await element.click()
+
+                        # Use event-based submission detection (same as other strategies)
+                        submission_info = await self._click_and_wait_for_submission(element, url_before_click)
                         logger.success(f"✅ Clicked active form submit: {self.state.active_form_submit_selector[:40]}")
                         self.state.submit_attempts += 1
                         self.state.form_submitted = True
+                        self.state.submission_response = submission_info
                         slog.detail(f"   📤 Submit attempt #{self.state.submit_attempts} - form marked as submitted")
-                        await self._wait_for_page_load_after_click(url_before_click, is_cta=False)
+
+                        # Only capture proof if we actually received a POST/PUT response
+                        # This prevents capturing screenshots of validation errors
+                        if submission_info.get("response_received", False) and not self.state.submission_proof:
+                            slog.detail("📊 Capturing submission proof...")
+                            try:
+                                proof = await self._capture_submission_proof()
+                                self.state.submission_proof = proof
+                                logger.debug(f"✅ Proof captured: screenshot={bool(proof.get('screenshot_path'))}, confirmation={bool(proof.get('confirmation_data'))}, network={bool(proof.get('network_data'))}")
+                            except Exception as e:
+                                logger.error(f"❌ Proof capture exception: {e}", exc_info=True)
+                        elif not submission_info.get("response_received", False):
+                            slog.detail("   ⚠️ No POST response received - skipping proof capture (likely validation error)")
                         return {"success": True}
                 except Exception as e:
                     logger.debug(f"   Active form submit failed: {e}, trying other strategies...")
@@ -3769,36 +4046,72 @@ class AIAgentOrchestrator:
                 element = await self.page.wait_for_selector(action.selector, timeout=3000)
                 if element and await element.is_visible():
                     await element.scroll_into_view_if_needed()
-                    await element.click()
-                    logger.success(f"✅ Clicked: {action.selector[:40]}")
+
                     if is_real_submit:
+                        # Use event-based submission detection for form submits
+                        submission_info = await self._click_and_wait_for_submission(element, url_before_click)
+                        logger.success(f"✅ Clicked: {action.selector[:40]}")
                         self.state.submit_attempts += 1
                         self.state.form_submitted = True
+                        self.state.submission_response = submission_info  # Store for proof capture
                         slog.detail(f"   📤 Submit attempt #{self.state.submit_attempts} - form marked as submitted")
-                    elif is_cta:
-                        slog.detail(f"   🔘 CTA button clicked (not a form submit)")
-                    await self._wait_for_page_load_after_click(url_before_click, is_cta=is_cta)
+
+                        # Only capture proof if we actually received a POST/PUT response
+                        if submission_info.get("response_received", False) and not self.state.submission_proof:
+                            slog.detail("📊 Capturing submission proof...")
+                            try:
+                                proof = await self._capture_submission_proof()
+                                self.state.submission_proof = proof
+                                logger.debug(f"✅ Proof captured: screenshot={bool(proof.get('screenshot_path'))}, confirmation={bool(proof.get('confirmation_data'))}, network={bool(proof.get('network_data'))}")
+                            except Exception as e:
+                                logger.error(f"❌ Proof capture exception: {e}", exc_info=True)
+                        elif not submission_info.get("response_received", False):
+                            slog.detail("   ⚠️ No POST response received - skipping proof capture (likely validation error)")
+                    else:
+                        await element.click()
+                        logger.success(f"✅ Clicked: {action.selector[:40]}")
+                        if is_cta:
+                            slog.detail(f"   🔘 CTA button clicked (not a form submit)")
+                        await self._wait_for_page_load_after_click(url_before_click, is_cta=is_cta)
+
                     return {"success": True}
             except:
                 pass
-            
+
             # Strategy 2: Parsed selector
             parsed = self._parse_selector(action.selector)
             try:
                 element = await self.page.wait_for_selector(parsed, timeout=3000)
                 if element and await element.is_visible():
                     await element.scroll_into_view_if_needed()
-                    await element.click()
-                    logger.success(f"✅ Clicked (parsed): {parsed[:40]}")
+
                     if is_real_submit:
+                        # Use event-based submission detection for form submits
+                        submission_info = await self._click_and_wait_for_submission(element, url_before_click)
+                        logger.success(f"✅ Clicked (parsed): {parsed[:40]}")
                         self.state.submit_attempts += 1
                         self.state.form_submitted = True
-                        slog.detail(f"   📤 Submit attempt #{self.state.submit_attempts} - form marked as submitted")
-                    await self._wait_for_page_load_after_click(url_before_click, is_cta=is_cta)
+                        self.state.submission_response = submission_info
+
+                        # Only capture proof if we actually received a POST/PUT response
+                        if submission_info.get("response_received", False) and not self.state.submission_proof:
+                            slog.detail("📊 Capturing submission proof...")
+                            try:
+                                proof = await self._capture_submission_proof()
+                                self.state.submission_proof = proof
+                            except Exception as e:
+                                logger.error(f"❌ Proof capture exception: {e}")
+                        elif not submission_info.get("response_received", False):
+                            slog.detail("   ⚠️ No POST response received - skipping proof capture (likely validation error)")
+                    else:
+                        await element.click()
+                        logger.success(f"✅ Clicked (parsed): {parsed[:40]}")
+                        await self._wait_for_page_load_after_click(url_before_click, is_cta=is_cta)
+
                     return {"success": True}
             except:
                 pass
-            
+
             # Strategy 3: Text-based search
             text_match = re.search(r'["\']([^"\']+)["\']', action.selector)
             if text_match:
@@ -3808,13 +4121,30 @@ class AIAgentOrchestrator:
                         element = await self.page.locator(f"{tag}:has-text('{search_text}')").first.element_handle(timeout=2000)
                         if element:
                             await element.scroll_into_view_if_needed()
-                            await element.click()
-                            logger.success(f"✅ Clicked {tag} with text: {search_text}")
+
                             if is_real_submit:
+                                # Use event-based submission detection for form submits
+                                submission_info = await self._click_and_wait_for_submission(element, url_before_click)
+                                logger.success(f"✅ Clicked {tag} with text: {search_text}")
                                 self.state.submit_attempts += 1
                                 self.state.form_submitted = True
-                                slog.detail(f"   📤 Submit attempt #{self.state.submit_attempts} - form marked as submitted")
-                            await self._wait_for_page_load_after_click(url_before_click, is_cta=is_cta)
+                                self.state.submission_response = submission_info
+
+                                # Only capture proof if we actually received a POST/PUT response
+                                if submission_info.get("response_received", False) and not self.state.submission_proof:
+                                    slog.detail("📊 Capturing submission proof...")
+                                    try:
+                                        proof = await self._capture_submission_proof()
+                                        self.state.submission_proof = proof
+                                    except Exception as e:
+                                        logger.error(f"❌ Proof capture exception: {e}")
+                                elif not submission_info.get("response_received", False):
+                                    slog.detail("   ⚠️ No POST response received - skipping proof capture (likely validation error)")
+                            else:
+                                await element.click()
+                                logger.success(f"✅ Clicked {tag} with text: {search_text}")
+                                await self._wait_for_page_load_after_click(url_before_click, is_cta=is_cta)
+
                             return {"success": True}
                     except:
                         continue
@@ -3971,7 +4301,20 @@ class AIAgentOrchestrator:
             else:
                 # Regular click (like form submit) - standard wait
                 await asyncio.sleep(1.5)
-                
+
+            # If this was a form submission, capture proof (only if we got a POST response)
+            submission_response = getattr(self.state, 'submission_response', None) or {}
+            got_response = submission_response.get("response_received", False)
+            logger.debug(f"🔍 Proof check: form_submitted={self.state.form_submitted}, has_proof={bool(self.state.submission_proof)}, got_response={got_response}")
+            if self.state.form_submitted and not self.state.submission_proof and got_response:
+                slog.detail("📊 Capturing submission proof...")
+                try:
+                    proof = await self._capture_submission_proof()
+                    self.state.submission_proof = proof
+                    logger.debug(f"✅ Proof captured: screenshot={bool(proof.get('screenshot_path'))}, confirmation={bool(proof.get('confirmation_data'))}, network={bool(proof.get('network_data'))}")
+                except Exception as e:
+                    logger.error(f"❌ Proof capture exception: {e}", exc_info=True)
+
         except Exception as e:
             logger.debug(f"Wait for page load error (non-critical): {e}")
             # Even if waiting fails, continue - the page might still be usable

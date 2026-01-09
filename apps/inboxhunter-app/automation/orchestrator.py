@@ -1287,11 +1287,23 @@ class InboxHunterBot:
                 details = f"Signup type: {signup_type}, Fields filled: {len(fields)}"
                 if analysis.reason:
                     details += f", Form: {analysis.reason}"
-                
+
                 # Simple log: success with type
                 slog.url_success(signup_type)
-                
-                self._record_result(url, source, "success", fields, details=details)
+
+                # Extract proof data if available
+                proof = result.get("submission_proof", {})
+                screenshot_path = proof.get("screenshot_path")
+                confirmation_data = proof.get("confirmation_data")
+                network_data = proof.get("network_data")
+
+                self._record_result(
+                    url, source, "success", fields,
+                    details=details,
+                    screenshot_path=screenshot_path,
+                    confirmation_data=confirmation_data,
+                    network_data=network_data
+                )
                 self.stats["successful_signups"] += 1
                 return True
             else:
@@ -1376,9 +1388,10 @@ class InboxHunterBot:
                                details=f"Exception type: {type(e).__name__}")
             return False
     
-    def _record_result(self, url: str, source: str, status: str, fields_filled: list, 
-                       error_message: str = None, error_category: str = None, details: str = None):
-        """Record processing result in database."""
+    def _record_result(self, url: str, source: str, status: str, fields_filled: list,
+                       error_message: str = None, error_category: str = None, details: str = None,
+                       screenshot_path: str = None, confirmation_data: dict = None, network_data: dict = None):
+        """Record processing result in database with optional proof data."""
         self.db.add_processed_url(
             url=url,
             source=source,
@@ -1386,7 +1399,10 @@ class InboxHunterBot:
             fields_filled=fields_filled,
             error_message=error_message,
             error_category=error_category,
-            details=details
+            details=details,
+            screenshot_path=screenshot_path,
+            confirmation_data=confirmation_data,
+            network_data=network_data
         )
         
         # Also mark as processed in scraped_urls if it was from database

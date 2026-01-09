@@ -10,6 +10,12 @@ import subprocess
 import platform
 import shutil
 
+# Handle Windows console encoding issues
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 def get_platform_suffix():
     """Get the platform-specific suffix for the executable."""
     system = platform.system().lower()
@@ -72,6 +78,21 @@ def build_executable():
         "--hidden-import", "sqlite3",
         "--hidden-import", "json",
         "--hidden-import", "asyncio",
+        "--hidden-import", "loguru",
+        "--hidden-import", "colorama",
+        "--hidden-import", "sqlalchemy",
+        "--hidden-import", "sqlalchemy.ext.declarative",
+        "--hidden-import", "beautifulsoup4",
+        "--hidden-import", "bs4",
+        "--hidden-import", "lxml",
+        "--hidden-import", "requests",
+        "--hidden-import", "aiohttp",
+        "--hidden-import", "aiofiles",
+        "--hidden-import", "faker",
+        "--hidden-import", "phonenumbers",
+        "--hidden-import", "certifi",
+        "--hidden-import", "pydantic_settings",
+        "--hidden-import", "dotenv",
         # Collect all playwright data
         "--collect-all", "playwright",
         # The main script

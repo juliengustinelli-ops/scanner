@@ -1049,19 +1049,32 @@ Examples:
         page_url = context.get("page_url", "")
         simplified_html = context.get("simplified_html", "")
 
-        return f"""You are a web automation agent. Analyze this HTML and return actions to sign up for an email newsletter.
+        return f"""You are a web automation agent. Analyze this HTML and return actions to sign up for an email newsletter or application form.
 
-CRITICAL: Only create actions for elements that ACTUALLY EXIST in the HTML below!
-- Do NOT assume fields exist - check the HTML first
-- Do NOT hallucinate selectors - only use selectors you can see in the HTML
-- If only an email field exists, only fill email and click submit
+CRITICAL RULES:
+1. Only create actions for elements that ACTUALLY EXIST in the HTML below
+2. Do NOT hallucinate selectors - only use selectors you can see in the HTML
+3. MUST FILL ALL REQUIRED FIELDS before clicking submit - look for:
+   - required attribute
+   - data-required="true" or data-required="false" (false means optional)
+   - aria-required="true"
+   - Asterisk (*) in placeholder or nearby label text
+   - Fields with validation patterns
+4. If you cannot fill all required fields, the form will fail validation!
 
-CREDENTIALS (use ONLY if matching field exists in HTML):
+CREDENTIALS (use these values for matching fields):
 - Email: {credentials.get('email', 'test@example.com')}
-- First Name: {credentials.get('first_name', 'John')} (only if first_name field exists)
-- Last Name: {credentials.get('last_name', 'Doe')} (only if last_name field exists)
-- Full Name: {credentials.get('full_name', 'John Doe')} (only if name/full_name field exists)
-- Phone: {credentials.get('phone', '1234567890')} (only if phone/tel field exists)
+- First Name: {credentials.get('first_name', 'John')}
+- Last Name: {credentials.get('last_name', 'Doe')}
+- Full Name: {credentials.get('full_name', 'John Doe')}
+- Phone: {credentials.get('phone', '+1 555-123-4567')}
+- Website/URL: https://example.com
+- Company: Example Company
+- Job Title: Marketing Manager
+- Description/Message: I am interested in learning more about your services.
+- Challenge/Problem: Growing my business efficiently
+- Budget: $1000-5000
+- How did you hear: Online search
 
 PAGE URL: {page_url}
 
@@ -1069,22 +1082,29 @@ HTML:
 {simplified_html}
 
 INSTRUCTIONS:
-1. Scan the HTML for actual form fields (look for <input>, <button>, etc.)
-2. ONLY create selectors for elements you can SEE in the HTML above
-3. Use exact selectors from the HTML: #id, [name="x"], or class selectors
-4. Find the submit button IN the HTML
+1. Scan ALL form fields in the HTML
+2. Identify which fields are REQUIRED (look for required, data-required, *, aria-required)
+3. Create fill_field actions for ALL required fields AND email field
+4. For radio buttons/checkboxes that are required, select the first option
+5. Use exact selectors from HTML: #id, [name="x"], or descriptive selectors
+6. End with the submit button click
 
 Return JSON:
 {{
     "actions": [
         {{"action": "fill_field", "selector": "#email", "field_type": "email"}},
+        {{"action": "fill_field", "selector": "#website", "field_type": "text", "value": "https://example.com"}},
+        {{"action": "click", "selector": "input[type='radio'][value='yes']", "reasoning": "Select required radio"}},
         {{"action": "click", "selector": "#submit"}}
     ],
-    "reasoning": "Brief explanation"
+    "reasoning": "Found 3 required fields + email, filled all before submit"
 }}
 
-Valid field_type: email, full_name, first_name, last_name, phone, checkbox
+Valid field_type: email, full_name, first_name, last_name, phone, text, textarea, checkbox, radio
 Valid action: fill_field, click, complete
+
+For text/textarea fields not in credentials list, use appropriate generic values from the list above.
+For required radio/checkbox groups, click the first visible option.
 
 If no signup form found:
 {{"actions": [{{"action": "complete", "reasoning": "No signup form"}}], "reasoning": "No form"}}

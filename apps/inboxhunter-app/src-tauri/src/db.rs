@@ -18,6 +18,9 @@ pub fn init_database(db_path: &Path) -> Result<()> {
             error_message TEXT,
             error_category TEXT,
             details TEXT,
+            screenshot_path TEXT,
+            confirmation_data TEXT,
+            network_data TEXT,
             processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         
@@ -62,28 +65,58 @@ fn migrate_database(conn: &Connection) -> Result<()> {
     let has_error_category: bool = conn
         .prepare("SELECT error_category FROM processed_urls LIMIT 1")
         .is_ok();
-    
+
     if !has_error_category {
         // Add error_category column
         conn.execute("ALTER TABLE processed_urls ADD COLUMN error_category TEXT", [])?;
     }
-    
+
     // Check if details column exists
     let has_details: bool = conn
         .prepare("SELECT details FROM processed_urls LIMIT 1")
         .is_ok();
-    
+
     if !has_details {
         // Add details column
         conn.execute("ALTER TABLE processed_urls ADD COLUMN details TEXT", [])?;
     }
-    
+
+    // Check if screenshot_path column exists
+    let has_screenshot_path: bool = conn
+        .prepare("SELECT screenshot_path FROM processed_urls LIMIT 1")
+        .is_ok();
+
+    if !has_screenshot_path {
+        // Add screenshot_path column
+        conn.execute("ALTER TABLE processed_urls ADD COLUMN screenshot_path TEXT", [])?;
+    }
+
+    // Check if confirmation_data column exists
+    let has_confirmation_data: bool = conn
+        .prepare("SELECT confirmation_data FROM processed_urls LIMIT 1")
+        .is_ok();
+
+    if !has_confirmation_data {
+        // Add confirmation_data column
+        conn.execute("ALTER TABLE processed_urls ADD COLUMN confirmation_data TEXT", [])?;
+    }
+
+    // Check if network_data column exists
+    let has_network_data: bool = conn
+        .prepare("SELECT network_data FROM processed_urls LIMIT 1")
+        .is_ok();
+
+    if !has_network_data {
+        // Add network_data column
+        conn.execute("ALTER TABLE processed_urls ADD COLUMN network_data TEXT", [])?;
+    }
+
     // Now create the index on error_category (only if column exists)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_processed_category ON processed_urls(error_category)",
         []
     )?;
-    
+
     Ok(())
 }
 
@@ -93,12 +126,13 @@ pub fn get_processed_urls(db_path: &str, limit: i32) -> Result<Vec<ProcessedURL>
     let conn = Connection::open(db_path)?;
     
     let mut stmt = conn.prepare(
-        "SELECT id, url, source, status, fields_filled, error_message, error_category, details, processed_at 
-         FROM processed_urls 
-         ORDER BY processed_at DESC 
+        "SELECT id, url, source, status, fields_filled, error_message, error_category, details,
+                screenshot_path, confirmation_data, network_data, processed_at
+         FROM processed_urls
+         ORDER BY processed_at DESC
          LIMIT ?"
     )?;
-    
+
     let rows = stmt.query_map([limit], |row| {
         Ok(ProcessedURL {
             id: row.get(0)?,
@@ -109,7 +143,10 @@ pub fn get_processed_urls(db_path: &str, limit: i32) -> Result<Vec<ProcessedURL>
             error_message: row.get(5)?,
             error_category: row.get(6)?,
             details: row.get(7)?,
-            processed_at: row.get(8)?,
+            screenshot_path: row.get(8)?,
+            confirmation_data: row.get(9)?,
+            network_data: row.get(10)?,
+            processed_at: row.get(11)?,
         })
     })?;
     
@@ -140,6 +177,8 @@ pub fn delete_processed_url(db_path: &str, id: i32) -> Result<()> {
 pub fn clear_processed_urls(db_path: &str) -> Result<()> {
     let conn = Connection::open(db_path)?;
     conn.execute("DELETE FROM processed_urls", [])?;
+    // VACUUM to reclaim disk space (screenshots are stored as base64 and can be large)
+    conn.execute("VACUUM", [])?;
     Ok(())
 }
 
@@ -255,6 +294,8 @@ pub fn update_scraped_url_status(db_path: &str, id: i32, processed: bool) -> Res
 pub fn clear_scraped_urls(db_path: &str) -> Result<()> {
     let conn = Connection::open(db_path)?;
     conn.execute("DELETE FROM scraped_urls", [])?;
+    // VACUUM to reclaim disk space
+    conn.execute("VACUUM", [])?;
     Ok(())
 }
 
@@ -410,5 +451,7 @@ pub fn get_api_cost_summary(db_path: &str) -> Result<ApiCostSummary> {
 pub fn clear_api_sessions(db_path: &str) -> Result<()> {
     let conn = Connection::open(db_path)?;
     conn.execute("DELETE FROM api_sessions", [])?;
+    // VACUUM to reclaim disk space
+    conn.execute("VACUUM", [])?;
     Ok(())
 }

@@ -18,7 +18,7 @@ Base = declarative_base()
 class ProcessedURL(Base):
     """URLs that have been processed (signup attempted)."""
     __tablename__ = 'processed_urls'
-    
+
     id = Column(Integer, primary_key=True)
     url = Column(String(2000), nullable=False, unique=True)
     source = Column(String(50), default='unknown')  # 'csv', 'meta', 'database'
@@ -27,6 +27,9 @@ class ProcessedURL(Base):
     error_message = Column(Text)  # Error details if failed / reason if skipped
     error_category = Column(String(50))  # Error category: validation, captcha, not_found, etc.
     details = Column(Text)  # Additional info: signup type, form found, etc.
+    screenshot_path = Column(Text)  # Path to screenshot after submission
+    confirmation_data = Column(Text)  # JSON: confirmation messages, elements found
+    network_data = Column(Text)  # JSON: HTTP response status, body
     processed_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -71,13 +74,13 @@ class DatabaseOperations:
     def _migrate_schema(self):
         """Add missing columns to existing tables (for schema updates)."""
         from sqlalchemy import text, inspect
-        
+
         inspector = inspect(self.engine)
-        
+
         # Check processed_urls table for missing columns
         if 'processed_urls' in inspector.get_table_names():
             columns = [col['name'] for col in inspector.get_columns('processed_urls')]
-            
+
             # Add 'details' column if missing
             if 'details' not in columns:
                 logger.info("📦 Migrating database: Adding 'details' column to processed_urls...")
@@ -85,12 +88,34 @@ class DatabaseOperations:
                     conn.execute(text("ALTER TABLE processed_urls ADD COLUMN details TEXT"))
                     conn.commit()
                 logger.info("✅ Database migration complete")
-            
+
             # Add 'error_category' column if missing
             if 'error_category' not in columns:
                 logger.info("📦 Migrating database: Adding 'error_category' column to processed_urls...")
                 with self.engine.connect() as conn:
                     conn.execute(text("ALTER TABLE processed_urls ADD COLUMN error_category VARCHAR(50)"))
+                    conn.commit()
+                logger.info("✅ Database migration complete")
+
+            # Add proof capture columns if missing
+            if 'screenshot_path' not in columns:
+                logger.info("📦 Migrating database: Adding 'screenshot_path' column to processed_urls...")
+                with self.engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE processed_urls ADD COLUMN screenshot_path TEXT"))
+                    conn.commit()
+                logger.info("✅ Database migration complete")
+
+            if 'confirmation_data' not in columns:
+                logger.info("📦 Migrating database: Adding 'confirmation_data' column to processed_urls...")
+                with self.engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE processed_urls ADD COLUMN confirmation_data TEXT"))
+                    conn.commit()
+                logger.info("✅ Database migration complete")
+
+            if 'network_data' not in columns:
+                logger.info("📦 Migrating database: Adding 'network_data' column to processed_urls...")
+                with self.engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE processed_urls ADD COLUMN network_data TEXT"))
                     conn.commit()
                 logger.info("✅ Database migration complete")
     
@@ -105,10 +130,12 @@ class DatabaseOperations:
         finally:
             session.close()
     
-    def add_processed_url(self, url: str, source: str, status: str, 
+    def add_processed_url(self, url: str, source: str, status: str,
                           fields_filled: List[str] = None, error_message: str = None,
-                          error_category: str = None, details: str = None) -> int:
-        """Add a processed URL record."""
+                          error_category: str = None, details: str = None,
+                          screenshot_path: str = None, confirmation_data: Dict[str, Any] = None,
+                          network_data: Dict[str, Any] = None) -> int:
+        """Add a processed URL record with optional proof data."""
         session = self.Session()
         try:
             # Check if already exists
@@ -120,10 +147,13 @@ class DatabaseOperations:
                 existing.error_message = error_message
                 existing.error_category = error_category
                 existing.details = details
+                existing.screenshot_path = screenshot_path
+                existing.confirmation_data = json.dumps(confirmation_data) if confirmation_data else None
+                existing.network_data = json.dumps(network_data) if network_data else None
                 existing.processed_at = datetime.utcnow()
                 session.commit()
                 return existing.id
-            
+
             record = ProcessedURL(
                 url=url,
                 source=source,
@@ -131,7 +161,10 @@ class DatabaseOperations:
                 fields_filled=json.dumps(fields_filled or []),
                 error_message=error_message,
                 error_category=error_category,
-                details=details
+                details=details,
+                screenshot_path=screenshot_path,
+                confirmation_data=json.dumps(confirmation_data) if confirmation_data else None,
+                network_data=json.dumps(network_data) if network_data else None
             )
             session.add(record)
             session.commit()
@@ -146,7 +179,7 @@ class DatabaseOperations:
             records = session.query(ProcessedURL).order_by(
                 ProcessedURL.processed_at.desc()
             ).limit(limit).all()
-            
+
             return [{
                 "id": r.id,
                 "url": r.url,
@@ -156,6 +189,9 @@ class DatabaseOperations:
                 "error_message": r.error_message,
                 "error_category": r.error_category,
                 "details": r.details,
+                "screenshot_path": r.screenshot_path if hasattr(r, 'screenshot_path') else None,
+                "confirmation_data": json.loads(r.confirmation_data) if hasattr(r, 'confirmation_data') and r.confirmation_data else None,
+                "network_data": json.loads(r.network_data) if hasattr(r, 'network_data') and r.network_data else None,
                 "processed_at": r.processed_at.isoformat() if r.processed_at else None
             } for r in records]
         finally:
@@ -198,6 +234,26 @@ class DatabaseOperations:
         try:
             session.query(ProcessedURL).delete()
             session.commit()
+        finally:
+            session.close()
+
+    def get_submission_proof(self, record_id: int) -> Optional[Dict[str, Any]]:
+        """Get proof data (screenshot, confirmation, network) for a specific submission."""
+        session = self.Session()
+        try:
+            record = session.query(ProcessedURL).filter(ProcessedURL.id == record_id).first()
+            if not record:
+                return None
+
+            return {
+                "id": record.id,
+                "url": record.url,
+                "status": record.status,
+                "screenshot_path": record.screenshot_path if hasattr(record, 'screenshot_path') else None,
+                "confirmation_data": json.loads(record.confirmation_data) if hasattr(record, 'confirmation_data') and record.confirmation_data else None,
+                "network_data": json.loads(record.network_data) if hasattr(record, 'network_data') and record.network_data else None,
+                "processed_at": record.processed_at.isoformat() if record.processed_at else None
+            }
         finally:
             session.close()
     

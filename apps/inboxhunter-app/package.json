@@ -10,7 +10,9 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "build:standalone": "./scripts/build-with-browser.sh"
+    "build:standalone": "./scripts/build-with-browser.sh",
+    "build:sidecar": "cd automation && python build_executable.py",
+    "build:sidecar:dev": "npm run build:sidecar && cp automation/dist/inboxhunter-automation-x86_64-pc-windows-msvc.exe src-tauri/target/debug/inboxhunter-automation.exe"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.0.4",

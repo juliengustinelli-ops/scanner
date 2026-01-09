@@ -1,0 +1,7 @@
+# Test output folder - all results go here
+output/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo

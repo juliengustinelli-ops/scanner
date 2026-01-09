@@ -14,7 +14,12 @@ import {
   ChevronRight,
   Layers,
   Globe,
-  RotateCw
+  RotateCw,
+  Eye,
+  X,
+  Camera,
+  CheckSquare,
+  Network
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore } from '../hooks/useAppStore'
@@ -26,6 +31,11 @@ interface ProcessedURL {
   status: string
   fields_filled: string | null
   error_message: string | null
+  error_category: string | null
+  details: string | null
+  screenshot_path: string | null
+  confirmation_data: string | null
+  network_data: string | null
   processed_at: string
 }
 
@@ -72,7 +82,9 @@ export function DatabasePage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: number | 'all'; table: Tab } | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  
+  const [showProofModal, setShowProofModal] = useState(false)
+  const [selectedProof, setSelectedProof] = useState<ProcessedURL | null>(null)
+
   const { addLog, isRunning, logs, triggerDbRefresh } = useAppStore()
   const itemsPerPage = 25
   const [togglingStatus, setTogglingStatus] = useState<number | null>(null)
@@ -195,16 +207,16 @@ export function DatabasePage() {
         const { invoke } = await import('@tauri-apps/api/tauri')
         const { save } = await import('@tauri-apps/api/dialog')
         const { writeTextFile } = await import('@tauri-apps/api/fs')
-        
+
         const commandName = activeTab === 'processed' ? 'export_processed_csv' : 'export_scraped_csv'
         const csv = await invoke(commandName) as string
         const prefix = activeTab === 'processed' ? 'processed-urls' : 'scraped-urls'
-        
+
         const filePath = await save({
           filters: [{ name: 'CSV', extensions: ['csv'] }],
           defaultPath: `inboxhunter-${prefix}-${new Date().toISOString().split('T')[0]}.csv`
         })
-        
+
         if (filePath) {
           await writeTextFile(filePath, csv)
           addLog('success', `📁 Exported to ${filePath}`)
@@ -213,6 +225,19 @@ export function DatabasePage() {
     } catch (error) {
       addLog('error', `Export failed: ${error}`)
     }
+  }
+
+  const handleViewProof = (item: ProcessedURL) => {
+    setSelectedProof(item)
+    setShowProofModal(true)
+  }
+
+  const hasProofData = (item: ProcessedURL) => {
+    return item.status === 'success' && (
+      item.screenshot_path ||
+      item.confirmation_data ||
+      item.network_data
+    )
   }
 
   // Filter and paginate processed URLs
@@ -418,9 +443,20 @@ export function DatabasePage() {
                       <td className="px-3 py-2">{getStatusBadge(item.status)}</td>
                       <td className="px-3 py-2 text-muted-foreground text-xs">{formatDate(item.processed_at)}</td>
                       <td className="px-3 py-2 text-right">
-                        <button onClick={() => { setDeleteTarget({ id: item.id, table: 'processed' }); setShowDeleteConfirm(true) }} className="p-1 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-600 dark:hover:text-red-400">
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          {hasProofData(item) && (
+                            <button
+                              onClick={() => handleViewProof(item)}
+                              className="p-1 rounded hover:bg-primary/20 text-muted-foreground hover:text-primary"
+                              title="View submission proof"
+                            >
+                              <Eye className="w-3 h-3" />
+                            </button>
+                          )}
+                          <button onClick={() => { setDeleteTarget({ id: item.id, table: 'processed' }); setShowDeleteConfirm(true) }} className="p-1 rounded hover:bg-red-500/20 text-muted-foreground hover:text-red-600 dark:hover:text-red-400">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -533,7 +569,7 @@ export function DatabasePage() {
                 </div>
                 <div>
                   <h3 className="font-semibold">
-                    {deleteTarget.id === 'all' 
+                    {deleteTarget.id === 'all'
                       ? `Clear All ${deleteTarget.table === 'processed' ? 'Processed' : 'Scraped'} URLs?`
                       : 'Delete Record?'
                     }
@@ -544,6 +580,200 @@ export function DatabasePage() {
               <div className="flex gap-2 justify-end">
                 <button onClick={() => setShowDeleteConfirm(false)} className="px-3 py-1.5 text-sm rounded-lg hover:bg-muted">Cancel</button>
                 <button onClick={confirmDelete} className="px-3 py-1.5 text-sm rounded-lg bg-red-500 text-white hover:bg-red-600">Delete</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Proof Modal */}
+      <AnimatePresence>
+        {showProofModal && selectedProof && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowProofModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-card border border-border rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between p-5 border-b border-border">
+                <div>
+                  <h3 className="font-semibold text-lg flex items-center gap-2">
+                    <Eye className="w-5 h-5 text-primary" />
+                    Submission Proof
+                  </h3>
+                  <p className="text-sm text-muted-foreground mt-1 truncate max-w-xl" title={selectedProof.url}>
+                    {selectedProof.url}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowProofModal(false)}
+                  className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-auto p-5 space-y-6">
+                {/* Screenshot Section */}
+                {selectedProof.screenshot_path && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Camera className="w-4 h-4 text-primary" />
+                      Screenshot
+                    </div>
+                    <div className="rounded-lg border border-border overflow-hidden bg-muted/50">
+                      <img
+                        src={`data:image/png;base64,${selectedProof.screenshot_path}`}
+                        alt="Submission screenshot"
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Confirmation Data Section */}
+                {selectedProof.confirmation_data && (() => {
+                  try {
+                    const data = JSON.parse(selectedProof.confirmation_data)
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <CheckSquare className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                          Confirmation Indicators
+                        </div>
+                        <div className="rounded-lg border border-border p-4 bg-muted/30 space-y-3">
+                          {data.success_messages && data.success_messages.length > 0 && (
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1.5">Success Messages</div>
+                              <div className="space-y-1">
+                                {data.success_messages.map((msg: string, i: number) => (
+                                  <div key={i} className="text-sm bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 px-2 py-1 rounded">
+                                    {msg}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {data.confirmation_elements && data.confirmation_elements.length > 0 && (
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1.5">Confirmation Elements</div>
+                              <div className="space-y-1">
+                                {data.confirmation_elements.map((el: string, i: number) => (
+                                  <div key={i} className="text-sm bg-blue-500/10 text-blue-700 dark:text-blue-300 px-2 py-1 rounded">
+                                    {el}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {data.page_title && (
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Page Title</div>
+                              <div className="text-sm">{data.page_title}</div>
+                            </div>
+                          )}
+                          {data.url && (
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Final URL</div>
+                              <div className="text-sm font-mono text-xs truncate">{data.url}</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  } catch {
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <CheckSquare className="w-4 h-4" />
+                          Confirmation Data
+                        </div>
+                        <pre className="text-xs bg-muted/30 p-3 rounded-lg overflow-auto">
+                          {selectedProof.confirmation_data}
+                        </pre>
+                      </div>
+                    )
+                  }
+                })()}
+
+                {/* Network Data Section */}
+                {selectedProof.network_data && (() => {
+                  try {
+                    const data = JSON.parse(selectedProof.network_data)
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <Network className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          Network Response
+                        </div>
+                        <div className="rounded-lg border border-border p-4 bg-muted/30 space-y-2">
+                          {data.url && (
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">URL</div>
+                              <div className="text-sm font-mono text-xs">{data.url}</div>
+                            </div>
+                          )}
+                          {data.title && (
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Title</div>
+                              <div className="text-sm">{data.title}</div>
+                            </div>
+                          )}
+                          {data.ready_state && (
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Ready State</div>
+                              <div className="text-sm">{data.ready_state}</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  } catch {
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <Network className="w-4 h-4" />
+                          Network Data
+                        </div>
+                        <pre className="text-xs bg-muted/30 p-3 rounded-lg overflow-auto">
+                          {selectedProof.network_data}
+                        </pre>
+                      </div>
+                    )
+                  }
+                })()}
+
+                {/* No Proof Data */}
+                {!selectedProof.screenshot_path && !selectedProof.confirmation_data && !selectedProof.network_data && (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <AlertTriangle className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p>No proof data available for this submission</p>
+                    <p className="text-xs mt-1">This feature was added after this submission was recorded</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between p-5 border-t border-border bg-muted/30">
+                <div className="text-xs text-muted-foreground">
+                  Submitted on {formatDate(selectedProof.processed_at)}
+                </div>
+                <button
+                  onClick={() => setShowProofModal(false)}
+                  className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  Close
+                </button>
               </div>
             </motion.div>
           </motion.div>

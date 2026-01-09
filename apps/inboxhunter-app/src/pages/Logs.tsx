@@ -1,7 +1,7 @@
-import { useRef, useEffect } from 'react'
-import { 
-  Trash2, 
-  Download, 
+import { useRef, useEffect, useMemo, useCallback } from 'react'
+import {
+  Trash2,
+  Download,
   Copy,
   CheckCircle2,
   XCircle,
@@ -11,7 +11,9 @@ import {
 } from 'lucide-react'
 import { useAppStore } from '../hooks/useAppStore'
 import { useTheme } from '../hooks/useTheme'
-import { motion } from 'framer-motion'
+
+// Limit displayed logs to prevent DOM bloat and memory issues
+const MAX_DISPLAYED_LOGS = 500
 
 export function LogsPage() {
   const { logs, clearLogs, addLog } = useAppStore()
@@ -20,12 +22,30 @@ export function LogsPage() {
 
   const isDark = resolvedTheme === 'dark'
 
-  // Auto-scroll to bottom when new logs arrive
-  useEffect(() => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
-    }
+  // Only show the most recent logs to prevent performance issues
+  const displayedLogs = useMemo(() => {
+    if (logs.length <= MAX_DISPLAYED_LOGS) return logs
+    return logs.slice(-MAX_DISPLAYED_LOGS)
   }, [logs])
+
+  // Memoize stats to avoid recalculating on every render
+  const stats = useMemo(() => ({
+    success: logs.filter(l => l.level === 'success').length,
+    errors: logs.filter(l => l.level === 'error').length,
+    warnings: logs.filter(l => l.level === 'warning').length,
+    total: logs.length
+  }), [logs])
+
+  // Auto-scroll to bottom when new logs arrive (debounced)
+  useEffect(() => {
+    const container = logContainerRef.current
+    if (container) {
+      // Use requestAnimationFrame to batch scroll updates
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight
+      })
+    }
+  }, [displayedLogs.length])
 
   const getLogIcon = (level: string) => {
     const iconClass = isDark ? {
@@ -133,27 +153,32 @@ export function LogsPage() {
       </div>
 
       {/* Log Container */}
-      <div 
+      <div
         ref={logContainerRef}
         className={`flex-1 rounded-xl border border-border overflow-auto font-mono text-sm ${
           isDark ? 'bg-[#0d1117]' : 'bg-slate-50'
         }`}
       >
-        {logs.length > 0 ? (
-          <div className="p-4 space-y-1">
-            {logs.map((log, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="flex items-start gap-3 py-1.5 group hover:bg-black/5 dark:hover:bg-white/5 px-2 -mx-2 rounded"
+        {displayedLogs.length > 0 ? (
+          <div className="p-4 space-y-0">
+            {/* Show truncation notice if logs were trimmed */}
+            {logs.length > MAX_DISPLAYED_LOGS && (
+              <div className="text-xs text-muted-foreground mb-2 py-1 px-2 bg-muted/50 rounded">
+                Showing last {MAX_DISPLAYED_LOGS} of {logs.length} logs (older logs hidden for performance)
+              </div>
+            )}
+            {/* Render logs without motion animation for performance */}
+            {displayedLogs.map((log, index) => (
+              <div
+                key={`${log.timestamp}-${index}`}
+                className="flex items-start gap-3 py-1 group hover:bg-black/5 dark:hover:bg-white/5 px-2 -mx-2 rounded"
               >
                 <span className="text-muted-foreground shrink-0 text-xs">{log.timestamp}</span>
                 <span className="shrink-0 mt-0.5">{getLogIcon(log.level)}</span>
                 <span className={`${getLogColor(log.level)} whitespace-pre-wrap break-words select-text flex-1`}>
                   {log.message}
                 </span>
-              </motion.div>
+              </div>
             ))}
           </div>
         ) : (
@@ -167,22 +192,22 @@ export function LogsPage() {
         )}
       </div>
 
-      {/* Stats Bar */}
+      {/* Stats Bar - using memoized stats */}
       <div className="flex items-center gap-6 text-sm text-muted-foreground">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400" />
-          <span>Success: {logs.filter(l => l.level === 'success').length}</span>
+          <span>Success: {stats.success}</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-red-500 dark:bg-red-400" />
-          <span>Errors: {logs.filter(l => l.level === 'error').length}</span>
+          <span>Errors: {stats.errors}</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-amber-500 dark:bg-amber-400" />
-          <span>Warnings: {logs.filter(l => l.level === 'warning').length}</span>
+          <span>Warnings: {stats.warnings}</span>
         </div>
         <div className="ml-auto">
-          Total: {logs.length} entries
+          Total: {stats.total} entries
         </div>
       </div>
     </div>
