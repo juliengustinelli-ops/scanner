@@ -1277,14 +1277,20 @@ Form elements in HTML (inputs, buttons only):
 
 ANALYZE THE VISIBLE TEXT ABOVE - CHECK FOR ERRORS FIRST:
 
-⚠️ VALIDATION ERRORS OVERRIDE EVERYTHING - Check for these FIRST:
+⚠️ VALIDATION/REJECTION ERRORS OVERRIDE EVERYTHING - Check for these FIRST:
 - "is required" or "required" near empty fields → VALIDATION ERROR
 - "Invalid" (invalid phone, invalid email, etc.) → VALIDATION ERROR
 - "Please fill", "Please enter", "Please provide" → VALIDATION ERROR
 - Red text or error messages visible → VALIDATION ERROR
 - Empty required fields with asterisks (*) → VALIDATION ERROR
+- "Different Address Needed" → REJECTION ERROR (email blocked)
+- "cannot subscribe", "can't subscribe" → REJECTION ERROR
+- "already subscribed", "already registered" → REJECTION ERROR
+- "address blocked", "email blocked" → REJECTION ERROR
+- "try again", "please try again" → ERROR
+- Warning icons (⚠️, !) with error text → ERROR
 
-If you see ANY validation error messages, status MUST be "validation_error" - NOT "success"!
+If you see ANY validation/rejection error messages, status MUST be "validation_error" - NOT "success"!
 
 Only if NO validation errors are present:
 - If text mentions prices ($5, $47, $97, etc.) → SALES PAGE → SUCCESS (lead captured)

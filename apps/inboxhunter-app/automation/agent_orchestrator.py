@@ -1731,9 +1731,8 @@ class AIAgentOrchestrator:
                 """)
 
                 if confirmation_indicators:
-                    # Serialize to JSON string for database storage
-                    import json
-                    proof["confirmation_data"] = json.dumps(confirmation_indicators)
+                    # Store as dict - database layer handles JSON serialization
+                    proof["confirmation_data"] = confirmation_indicators
                     success_count = len(confirmation_indicators.get("success_messages", [])) + \
                                   len(confirmation_indicators.get("confirmation_elements", []))
                     if success_count > 0:
@@ -1779,8 +1778,8 @@ class AIAgentOrchestrator:
                 except:
                     pass
 
-                import json
-                proof["network_data"] = json.dumps(response_data)
+                # Store as dict - database layer handles JSON serialization
+                proof["network_data"] = response_data
                 slog.detail("✅ Network data captured")
 
             except Exception as e:
