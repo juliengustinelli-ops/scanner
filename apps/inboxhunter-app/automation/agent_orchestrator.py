@@ -1357,7 +1357,19 @@ class AIAgentOrchestrator:
                     "simplified_html": final_page_state.get("simplified_html", ""),
                     "page_url": self.page.url,
                     "visible_text": final_page_state.get("visible_text", "")[:3000],  # More text for context
+                    "credentials": self.credentials,  # Pass credentials for multi-step forms
                 }
+
+                # Check for network-based success indicators
+                # If we received a successful HTTP response after submit, that's a strong success signal
+                submission_response = getattr(self.state, 'submission_response', None) or {}
+                if submission_response.get("response_received"):
+                    response_status = submission_response.get("response_status", 0)
+                    # HTTP 200, 201, 204 are success indicators
+                    if response_status in [200, 201, 204]:
+                        slog.detail(f"   📡 Network success detected: HTTP {response_status}")
+                        verification_context["network_success"] = True
+                        verification_context["network_status"] = response_status
 
                 # Call LLM to verify submission
                 verification_result = await self.llm_analyzer.verify_submission(verification_context)
@@ -1553,7 +1565,31 @@ class AIAgentOrchestrator:
             return self.credentials.get("phone", "")
         elif field_type_lower == "checkbox":
             return "true"
+        # NEW: Additional field types for complex forms
+        elif field_type_lower in ["company", "business_name", "business", "organization", "company_name"]:
+            return self.credentials.get("company", "Example Company")
+        elif field_type_lower in ["website", "url", "site", "company_website"]:
+            return self.credentials.get("website", "https://example.com")
+        elif field_type_lower in ["job_title", "title", "position", "role"]:
+            return self.credentials.get("job_title", "Marketing Manager")
+        elif field_type_lower in ["message", "description", "comment", "comments", "notes", "challenge", "problem", "goals"]:
+            return self.credentials.get("message", "I am interested in learning more about your services and how they can help grow my business.")
+        elif field_type_lower in ["budget", "investment"]:
+            return self.credentials.get("budget", "$1,000 - $5,000")
+        elif field_type_lower in ["how_heard", "referral", "source", "how_did_you_hear"]:
+            return self.credentials.get("how_heard", "Online search")
+        elif field_type_lower in ["industry", "sector"]:
+            return self.credentials.get("industry", "Technology")
+        elif field_type_lower in ["employees", "company_size", "team_size"]:
+            return self.credentials.get("company_size", "11-50")
+        elif field_type_lower in ["country", "location"]:
+            return self.credentials.get("country", "United States")
+        elif field_type_lower in ["text", "other"]:
+            # Generic text field - use a safe default
+            return "N/A"
         else:
+            # Unknown field type - return empty but log it for debugging
+            logger.debug(f"Unknown field_type: {field_type_lower}")
             return ""
 
     async def _build_final_result(self) -> Dict[str, Any]:
@@ -4164,6 +4200,27 @@ class AIAgentOrchestrator:
             try:
                 element = await self.page.wait_for_selector(action.selector, timeout=3000)
                 if element and await element.is_visible():
+                    # Check if button is disabled before clicking
+                    is_disabled = await element.evaluate("""
+                        (el) => {
+                            // Check various disabled states
+                            if (el.disabled) return true;
+                            if (el.hasAttribute('disabled')) return true;
+                            if (el.getAttribute('aria-disabled') === 'true') return true;
+                            if (el.classList.contains('disabled')) return true;
+                            // Check computed style for pointer-events: none
+                            const style = window.getComputedStyle(el);
+                            if (style.pointerEvents === 'none') return true;
+                            return false;
+                        }
+                    """)
+
+                    if is_disabled and is_real_submit:
+                        slog.detail(f"   ⚠️ Submit button is disabled - form may have validation errors")
+                        # Don't fail immediately - let the click try anyway (some disabled states are visual only)
+                        # But log it for debugging
+                        logger.debug(f"   Button disabled state detected for: {action.selector[:40]}")
+
                     await element.scroll_into_view_if_needed()
 
                     if is_real_submit:

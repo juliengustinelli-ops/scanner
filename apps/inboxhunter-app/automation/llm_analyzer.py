@@ -1253,12 +1253,38 @@ If no signup form found:
         simplified_html = context.get("simplified_html", "")
         page_url = context.get("page_url", "")
         visible_text = context.get("visible_text", "")[:1000]
+        credentials = context.get("credentials", {})
 
         fields_str = "\n".join([f"  - {f}" for f in fields_filled]) if fields_filled else "  None"
         actions_str = "\n".join([f"  - {a}" for a in actions_taken]) if actions_taken else "  None"
 
-        return f"""You are verifying if a form submission was successful or if more steps are needed.
+        # Format credentials for the prompt
+        creds_str = f"""
+CREDENTIALS TO USE FOR NEW FIELDS:
+- email: {credentials.get('email', 'test@example.com')}
+- first_name: {credentials.get('first_name', 'John')}
+- last_name: {credentials.get('last_name', 'Doe')}
+- full_name: {credentials.get('full_name', 'John Doe')}
+- phone: {credentials.get('phone', '+15551234567')}
+- company: Example Company
+- website: https://example.com
+- job_title: Marketing Manager
+- message: I am interested in learning more about your services.
+"""
 
+        # Check for network success indicators
+        network_success = context.get("network_success", False)
+        network_status = context.get("network_status", 0)
+        network_info = ""
+        if network_success:
+            network_info = f"""
+📡 NETWORK SUCCESS DETECTED: HTTP {network_status} response received after form submit!
+This is a STRONG indicator that the form was successfully submitted to the server.
+If you don't see error messages, this likely means SUCCESS."""
+
+        return f"""You are verifying if a form submission was successful or if more steps are needed.
+{creds_str}
+{network_info}
 WHAT WE DID:
 Fields filled:
 {fields_str}
@@ -1345,15 +1371,23 @@ Return JSON:
     "success_indicators": ["list", "of", "success", "messages", "found"],
     "error_indicators": ["list", "of", "error", "messages", "found"],
     "next_actions": [
-        // Only if status is "needs_more_actions":
-        {{"action": "fill_field", "selector": "#field", "field_type": "email"}},
+        // Only if status is "needs_more_actions" - MUST include selector AND field_type for fill_field actions:
+        {{"action": "fill_field", "selector": "#firstName", "field_type": "first_name"}},
+        {{"action": "fill_field", "selector": "#lastName", "field_type": "last_name"}},
+        {{"action": "fill_field", "selector": "[name='company']", "field_type": "company"}},
         {{"action": "click", "selector": "button:has-text('Submit')"}}
     ]
 }}
 
+⚠️ CRITICAL FOR next_actions:
+- For fill_field: MUST include "selector" (from HTML) AND "field_type" (from credentials list above)
+- Valid field_type values: email, first_name, last_name, full_name, phone, company, website, job_title, message, checkbox
+- Only use selectors that EXIST in the HTML above - don't invent selectors!
+- For click: MUST include "selector" for the button
+
 Examples:
 - Page shows "Thank you for signing up!" → {{"status": "success", "confidence": 0.95, "reasoning": "Clear thank you message visible"}}
-- Page shows "Step 2: Enter your address" with new fields → {{"status": "needs_more_actions", "next_actions": [...]}}
+- Page shows "Step 2: Enter your name" with firstName/lastName fields → {{"status": "needs_more_actions", "next_actions": [{{"action": "fill_field", "selector": "#firstName", "field_type": "first_name"}}, {{"action": "fill_field", "selector": "#lastName", "field_type": "last_name"}}, {{"action": "click", "selector": "button:has-text('Continue')"}}]}}
 - Page shows "$5 - Buy Now" sales page → {{"status": "success", "confidence": 0.85, "reasoning": "Lead captured, now showing upsell page"}}
 - Page shows "Please enter a valid email" → {{"status": "validation_error", "error_indicators": ["Please enter a valid email"]}}
 """
