@@ -1051,16 +1051,33 @@ Examples:
 
         return f"""You are a web automation agent. Analyze this HTML and return actions to sign up for an email newsletter or application form.
 
-CRITICAL RULES:
-1. Only create actions for elements that ACTUALLY EXIST in the HTML below
-2. Do NOT hallucinate selectors - only use selectors you can see in the HTML
-3. MUST FILL ALL REQUIRED FIELDS before clicking submit - look for:
-   - required attribute
-   - data-required="true" or data-required="false" (false means optional)
-   - aria-required="true"
-   - Asterisk (*) in placeholder or nearby label text
-   - Fields with validation patterns
-4. If you cannot fill all required fields, the form will fail validation!
+🚨🚨🚨 CRITICAL: DO NOT HALLUCINATE SELECTORS 🚨🚨🚨
+You MUST only use selectors that LITERALLY appear in the HTML below.
+
+SELECTOR RULES (MUST FOLLOW):
+1. For id selectors: Only use #id if you see id="id" in the HTML
+   - GOOD: id="email" → use #email
+   - BAD: Making up #TojDQFSj7Qgr64InnMYO (doesn't exist in HTML!)
+
+2. For name selectors: Only use [name="x"] if you see name="x" in the HTML
+   - GOOD: name="firstName" → use [name="firstName"]
+   - BAD: Making up [name="field123"]
+
+3. For type selectors: Use input[type="x"] only for actual input types
+   - GOOD: <input type="email"> → use input[type="email"]
+
+4. For buttons: Use the button text you can SEE
+   - GOOD: <button>Submit</button> → use button:has-text("Submit")
+   - BAD: Making up button:has-text("Magic Button")
+
+5. NEVER invent random alphanumeric IDs like #ABC123xyz or #Yes_I2Zu8pzZDTjTMKdrFpiH
+
+⚠️ Before adding any action, VERIFY the selector exists in the HTML below!
+⚠️ If you can't find a valid selector, skip that field - don't make one up!
+
+REQUIRED FIELDS - MUST FILL ALL:
+- Look for: required attribute, data-required="true", aria-required="true", asterisk (*)
+- If you cannot fill all required fields, the form will fail validation!
 
 CREDENTIALS (use these values for matching fields):
 - Email: {credentials.get('email', 'test@example.com')}
@@ -1078,33 +1095,33 @@ CREDENTIALS (use these values for matching fields):
 
 PAGE URL: {page_url}
 
-HTML:
+HTML TO ANALYZE (only use selectors from THIS HTML):
 {simplified_html}
 
 INSTRUCTIONS:
-1. Scan ALL form fields in the HTML
-2. Identify which fields are REQUIRED (look for required, data-required, *, aria-required)
-3. Create fill_field actions for ALL required fields AND email field
-4. For radio buttons/checkboxes that are required, select the first option
-5. Use exact selectors from HTML: #id, [name="x"], or descriptive selectors
-6. End with the submit button click
+1. Scan the HTML above for ALL form fields
+2. For EACH field you want to fill, find its EXACT id or name attribute from the HTML
+3. Identify which fields are REQUIRED (required, data-required, *, aria-required)
+4. Create fill_field actions using ONLY selectors you found in the HTML
+5. For radio/checkbox groups, use the exact selector from HTML (e.g., input[type="radio"][value="Yes"])
+6. End with the submit button click using its EXACT selector from HTML
 
 Return JSON:
 {{
     "actions": [
-        {{"action": "fill_field", "selector": "#email", "field_type": "email"}},
-        {{"action": "fill_field", "selector": "#website", "field_type": "text", "value": "https://example.com"}},
-        {{"action": "click", "selector": "input[type='radio'][value='yes']", "reasoning": "Select required radio"}},
-        {{"action": "click", "selector": "#submit"}}
+        {{"action": "fill_field", "selector": "#email", "field_type": "email", "reasoning": "Found id='email' in HTML"}},
+        {{"action": "fill_field", "selector": "[name='website']", "field_type": "text", "value": "https://example.com", "reasoning": "Found name='website' in HTML"}},
+        {{"action": "click", "selector": "input[type='radio'][value='Yes']", "reasoning": "Select first radio option from HTML"}},
+        {{"action": "click", "selector": "button[type='submit']", "reasoning": "Found submit button in HTML"}}
     ],
-    "reasoning": "Found 3 required fields + email, filled all before submit"
+    "reasoning": "Found 3 required fields + email in HTML, created actions using exact selectors"
 }}
 
 Valid field_type: email, full_name, first_name, last_name, phone, text, textarea, checkbox, radio
 Valid action: fill_field, click, complete
 
 For text/textarea fields not in credentials list, use appropriate generic values from the list above.
-For required radio/checkbox groups, click the first visible option.
+For required radio/checkbox groups, click the first visible option using its EXACT selector.
 
 If no signup form found:
 {{"actions": [{{"action": "complete", "reasoning": "No signup form"}}], "reasoning": "No form"}}
@@ -1228,3 +1245,177 @@ If no signup form found:
         except Exception as e:
             logger.error(f"Batch planning failed: {e}")
             return {"plan_type": "batch", "actions": [], "error": str(e)}
+
+    def _build_verification_prompt(self, context: Dict[str, Any]) -> str:
+        """Build prompt for verifying form submission and getting next steps if needed."""
+        fields_filled = context.get("fields_filled", [])
+        actions_taken = context.get("actions_taken", [])
+        simplified_html = context.get("simplified_html", "")
+        page_url = context.get("page_url", "")
+        visible_text = context.get("visible_text", "")[:1000]
+
+        fields_str = "\n".join([f"  - {f}" for f in fields_filled]) if fields_filled else "  None"
+        actions_str = "\n".join([f"  - {a}" for a in actions_taken]) if actions_taken else "  None"
+
+        return f"""You are verifying if a form submission was successful or if more steps are needed.
+
+WHAT WE DID:
+Fields filled:
+{fields_str}
+
+Actions taken:
+{actions_str}
+
+CURRENT PAGE STATE:
+URL: {page_url}
+
+Visible text on page (IMPORTANT - read this carefully to understand what page we're on):
+{visible_text}
+
+Form elements in HTML (inputs, buttons only):
+{simplified_html}
+
+ANALYZE THE VISIBLE TEXT ABOVE - CHECK FOR ERRORS FIRST:
+
+⚠️ VALIDATION ERRORS OVERRIDE EVERYTHING - Check for these FIRST:
+- "is required" or "required" near empty fields → VALIDATION ERROR
+- "Invalid" (invalid phone, invalid email, etc.) → VALIDATION ERROR
+- "Please fill", "Please enter", "Please provide" → VALIDATION ERROR
+- Red text or error messages visible → VALIDATION ERROR
+- Empty required fields with asterisks (*) → VALIDATION ERROR
+
+If you see ANY validation error messages, status MUST be "validation_error" - NOT "success"!
+
+Only if NO validation errors are present:
+- If text mentions prices ($5, $47, $97, etc.) → SALES PAGE → SUCCESS (lead captured)
+- If text mentions "Buy", "Purchase", "Order now", "Get Access" → SALES PAGE → SUCCESS
+- If text has long marketing copy AND the form fields we filled are gone → SUCCESS
+- If text shows "Thank you", "Success", "Confirmed" → CONFIRMATION PAGE → SUCCESS
+
+YOUR TASK:
+Analyze the current page state and determine:
+1. Was the form submission SUCCESSFUL? Look for:
+   - "Thank you" messages
+   - "Success" or "Confirmed" messages
+   - "Welcome" messages
+   - "Check your email" messages
+   - Confirmation pages
+   - Account created messages
+
+2. Is there a VALIDATION ERROR? Look for:
+   - Error messages near form fields
+   - "Please fill in..." messages
+   - "Invalid..." messages
+   - Red highlighted fields
+   - Required field warnings
+
+3. Is this a MULTI-STEP FORM requiring more actions? Look for:
+   - "Step 2", "Step 3" indicators
+   - New form fields that appeared
+   - "Continue" or "Next" buttons
+   - Additional required fields
+
+4. Is this a PAYMENT/UPSELL page (signup already complete)? Look for:
+   - Price mentions ($, "Buy now", "Purchase", "Order", "Get Access", "Instant Access")
+   - "Special offer", "One-time offer", "Limited time"
+   - Long sales copy / marketing content / testimonials
+   - Payment buttons or checkout forms
+   - The text mentions a product, course, framework, or service being sold
+
+CRITICAL: If we already filled fields (name, email, phone) and the page now shows:
+- Sales content with prices
+- "Buy" or "Purchase" or "Get Access" buttons
+- Marketing copy about a product/service
+- Long-form sales page content
+Then the SIGNUP WAS SUCCESSFUL - the lead was captured! The payment/sales page is just an upsell.
+
+DO NOT keep clicking buttons on sales pages. Once lead info is captured, mark as SUCCESS.
+
+Return JSON:
+{{
+    "status": "success" | "needs_more_actions" | "validation_error" | "failed",
+    "confidence": 0.0-1.0,
+    "reasoning": "Brief explanation of what you see on the page",
+    "success_indicators": ["list", "of", "success", "messages", "found"],
+    "error_indicators": ["list", "of", "error", "messages", "found"],
+    "next_actions": [
+        // Only if status is "needs_more_actions":
+        {{"action": "fill_field", "selector": "#field", "field_type": "email"}},
+        {{"action": "click", "selector": "button:has-text('Submit')"}}
+    ]
+}}
+
+Examples:
+- Page shows "Thank you for signing up!" → {{"status": "success", "confidence": 0.95, "reasoning": "Clear thank you message visible"}}
+- Page shows "Step 2: Enter your address" with new fields → {{"status": "needs_more_actions", "next_actions": [...]}}
+- Page shows "$5 - Buy Now" sales page → {{"status": "success", "confidence": 0.85, "reasoning": "Lead captured, now showing upsell page"}}
+- Page shows "Please enter a valid email" → {{"status": "validation_error", "error_indicators": ["Please enter a valid email"]}}
+"""
+
+    async def verify_submission(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Verify if form submission was successful and get next steps if needed.
+
+        This is Phase 2 of the two-phase LLM approach:
+        1. Phase 1: get_batch_plan() - Get initial actions to fill the form
+        2. Phase 2: verify_submission() - Check if successful, get more actions if needed
+
+        Args:
+            context: Dict containing:
+                - fields_filled: List of fields that were filled
+                - actions_taken: List of actions that were executed
+                - simplified_html: Current page HTML
+                - page_url: Current page URL
+                - visible_text: Visible text on page
+
+        Returns:
+            Dict with:
+                - status: "success" | "needs_more_actions" | "validation_error" | "failed"
+                - confidence: 0.0-1.0
+                - reasoning: Explanation
+                - next_actions: List of actions if status is "needs_more_actions"
+        """
+        simplified_html = context.get("simplified_html", "")
+
+        # Quick check - if no HTML, can't verify
+        if len(simplified_html) < 50:
+            logger.warning("⚠️ No HTML for verification - assuming success")
+            return {
+                "status": "success",
+                "confidence": 0.5,
+                "reasoning": "No HTML available for verification",
+                "next_actions": []
+            }
+
+        logger.info(f"🔍 Verifying submission (HTML: {len(simplified_html)} chars)...")
+
+        prompt = self._build_verification_prompt(context)
+
+        try:
+            result = await self._call_openai(prompt, [], None)
+
+            # Validate response
+            if not isinstance(result, dict):
+                logger.error(f"Verification returned non-dict: {type(result)}")
+                return {"status": "failed", "confidence": 0, "reasoning": "Invalid LLM response", "next_actions": []}
+
+            status = result.get("status", "failed")
+            confidence = result.get("confidence", 0)
+            reasoning = result.get("reasoning", "")
+            next_actions = result.get("next_actions", [])
+
+            # Log result
+            if status == "success":
+                logger.success(f"✅ Verification: SUCCESS (confidence: {confidence:.0%}) - {reasoning}")
+            elif status == "needs_more_actions":
+                logger.info(f"🔄 Verification: NEEDS MORE ACTIONS ({len(next_actions)} actions) - {reasoning}")
+            elif status == "validation_error":
+                logger.warning(f"⚠️ Verification: VALIDATION ERROR - {reasoning}")
+            else:
+                logger.error(f"❌ Verification: FAILED - {reasoning}")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Verification failed: {e}")
+            return {"status": "failed", "confidence": 0, "reasoning": str(e), "next_actions": []}

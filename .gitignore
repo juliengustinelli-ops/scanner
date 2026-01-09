@@ -3,3 +3,4 @@ node_modules
 .env*.local
 *.log
 release-assets/
+apps/inboxhunter-app/automation/tests/test_config.json

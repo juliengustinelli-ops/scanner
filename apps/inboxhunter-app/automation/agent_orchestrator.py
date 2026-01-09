@@ -1306,17 +1306,16 @@ class AIAgentOrchestrator:
                 self.state.add_action(action, field_type=field_type)
                 self.state.current_step += 1
 
-            # Step 4: Check for success
-            slog.detail("\n🔍 Checking for success indicators...")
+            # Step 4: Verify submission with LLM (Phase 2)
+            slog.detail("\n🔍 Verifying submission with LLM...")
 
             # Count successful vs failed actions
             successful_actions = [a for a in self.state.actions_taken if a.success]
             failed_actions = [a for a in self.state.actions_taken if not a.success]
             submit_clicked = any(a.action_type == "click" and a.success for a in self.state.actions_taken)
-            fields_filled = len([a for a in self.state.actions_taken if a.action_type == "fill_field" and a.success])
+            fields_filled_count = len([a for a in self.state.actions_taken if a.action_type == "fill_field" and a.success])
 
             # Count non-critical failures separately (LLM hallucinations or hidden elements)
-            # These don't indicate a real problem - just that LLM guessed wrong selectors
             hallucination_failures = len([a for a in failed_actions
                 if a.error_message and (
                     "not exist" in a.error_message.lower() or
@@ -1326,38 +1325,150 @@ class AIAgentOrchestrator:
                     "blocklisted" in a.error_message.lower()
                 )])
 
-            # Re-observe page to check for success
-            final_page_state = await self._observe_page(use_vision=False)
-            if final_page_state.get("has_success_indicator"):
-                slog.detail_success("🎉 SUCCESS indicator detected!")
-                self.state.success = True
-                self.state.complete = True
-            else:
-                # Check for overlay success
-                overlay_result = await self._check_and_handle_overlay()
-                if overlay_result.get("is_success"):
-                    slog.detail_success(f"🎉 SUCCESS via overlay: {overlay_result.get('reason')}")
-                    self.state.success = True
-                    self.state.complete = True
-                elif submit_clicked and fields_filled > 0:
-                    # Key actions succeeded: filled at least one field + clicked submit
-                    # Ignore LLM hallucinations (non-existent elements) as they don't affect actual submission
-                    real_failures = len(failed_actions) - hallucination_failures
-                    if real_failures == 0:
-                        slog.detail_success(f"🎉 SUCCESS: Filled {fields_filled} fields + submitted ({hallucination_failures} hallucinated fields ignored)")
-                        self.state.success = True
-                        self.state.complete = True
-
             # Check if ALL fill actions were hallucinations (no real form found)
             fill_actions = [a for a in self.state.actions_taken if a.action_type == "fill_field"]
-            if fill_actions and fields_filled == 0 and hallucination_failures == len(fill_actions):
-                # All fill attempts failed because selectors don't exist - LLM hallucinated the form
+            if fill_actions and fields_filled_count == 0 and hallucination_failures == len(fill_actions):
                 slog.detail("ℹ️ All selectors were hallucinations - treating as no form found")
                 return {
                     "success": False, "fields_filled": [], "actions": [],
                     "errors": ["No signup form found (LLM hallucinated selectors)"],
                     "skipped_reason": "no_form"
                 }
+
+            # Phase 2: LLM Verification Loop (max 3 iterations to handle multi-step forms)
+            max_verification_rounds = 3
+            for verification_round in range(max_verification_rounds):
+                if self._stop_check():
+                    return {
+                        "success": False,
+                        "fields_filled": list(self.state.fields_filled.keys()),
+                        "actions": [a.to_dict() for a in self.state.actions_taken],
+                        "errors": ["Stop requested"],
+                        "interrupted_by_stop": True
+                    }
+
+                # Get current page state for verification
+                final_page_state = await self._observe_page(use_vision=False, minimal=True)
+
+                # Build verification context - include more visible text for better page understanding
+                verification_context = {
+                    "fields_filled": list(self.state.fields_filled.keys()),
+                    "actions_taken": [f"{a.action_type}: {a.selector}" for a in self.state.actions_taken if a.success],
+                    "simplified_html": final_page_state.get("simplified_html", ""),
+                    "page_url": self.page.url,
+                    "visible_text": final_page_state.get("visible_text", "")[:3000],  # More text for context
+                }
+
+                # Call LLM to verify submission
+                verification_result = await self.llm_analyzer.verify_submission(verification_context)
+
+                status = verification_result.get("status", "failed")
+                confidence = verification_result.get("confidence", 0)
+                reasoning = verification_result.get("reasoning", "")
+                next_actions = verification_result.get("next_actions", [])
+
+                if status == "success":
+                    slog.detail_success(f"🎉 VERIFIED SUCCESS (confidence: {confidence:.0%}): {reasoning}")
+                    self.state.success = True
+                    self.state.complete = True
+
+                    # Capture proof now that we've verified success
+                    if not self.state.submission_proof:
+                        slog.detail("📸 Capturing submission proof...")
+                        try:
+                            proof = await self._capture_submission_proof()
+                            self.state.submission_proof = proof
+                            logger.debug(f"✅ Proof captured after verification")
+                        except Exception as e:
+                            logger.error(f"❌ Proof capture failed: {e}")
+                    break
+
+                elif status == "needs_more_actions" and next_actions:
+                    # Filter out actions we've already taken (prevent infinite loops)
+                    already_clicked = {a.selector for a in self.state.actions_taken if a.action_type == "click" and a.success}
+                    new_actions = [a for a in next_actions if a.get("selector") not in already_clicked]
+
+                    if not new_actions:
+                        slog.detail(f"🔄 LLM suggested actions we've already taken - treating as success")
+                        # If LLM keeps suggesting same actions, assume form is done
+                        self.state.success = True
+                        self.state.complete = True
+                        break
+
+                    slog.detail(f"🔄 Multi-step form detected (round {verification_round + 1}): {len(new_actions)} more actions needed")
+
+                    # Execute additional actions
+                    for j, action_data in enumerate(new_actions, 1):
+                        if self._stop_check():
+                            break
+
+                        action_type = action_data.get("action", "")
+                        selector = action_data.get("selector", "")
+                        field_type = action_data.get("field_type", "")
+                        action_reasoning = action_data.get("reasoning", "")
+
+                        slog.detail(f"   ⚡ Additional action {j}/{len(new_actions)}: {action_type}")
+
+                        if action_type == "complete":
+                            continue
+
+                        action = AgentAction(
+                            action_type=action_type,
+                            selector=selector,
+                            value=self._get_value_for_field_type(field_type) if action_type == "fill_field" else "",
+                            reasoning=action_reasoning,
+                            field_type=field_type
+                        )
+
+                        result = await self._execute_action(action)
+
+                        if result.get("success"):
+                            action.success = True
+                            executed_count += 1
+                            slog.detail_success(f"      ✅ {action_type} succeeded")
+                            if action_type == "fill_field" and selector:
+                                self.state.fields_filled[selector] = action.value
+                                if field_type:
+                                    self.state.field_types_filled[field_type] = selector
+                        else:
+                            action.success = False
+                            action.error_message = result.get("error", "Unknown error")
+                            slog.detail_warning(f"      ⚠️ {action_type} failed: {action.error_message}")
+
+                        self.state.add_action(action, field_type=field_type)
+                        self.state.current_step += 1
+
+                    # Continue to next verification round
+                    continue
+
+                elif status == "validation_error":
+                    error_indicators = verification_result.get("error_indicators", [])
+                    slog.detail_warning(f"⚠️ Validation error detected: {reasoning}")
+                    if error_indicators:
+                        slog.detail_warning(f"   Errors: {', '.join(error_indicators[:3])}")
+                    # Don't mark as success, but don't keep trying
+                    break
+
+                else:
+                    # status == "failed" or unknown
+                    slog.detail(f"📊 Verification inconclusive: {reasoning}")
+                    # Fall back to heuristic check
+                    if submit_clicked and fields_filled_count > 0:
+                        real_failures = len(failed_actions) - hallucination_failures
+                        if real_failures == 0:
+                            slog.detail_success(f"🎉 SUCCESS (heuristic): Filled {fields_filled_count} fields + submitted")
+                            self.state.success = True
+                            self.state.complete = True
+                    break
+
+            # If still not verified, do final heuristic checks
+            if not self.state.success:
+                # Check for overlay success
+                overlay_result = await self._check_and_handle_overlay()
+                if overlay_result.get("is_success"):
+                    slog.detail_success(f"🎉 SUCCESS via overlay: {overlay_result.get('reason')}")
+                    self.state.success = True
+                    self.state.complete = True
 
             # Build result
             result = await self._build_final_result()
@@ -3972,13 +4083,22 @@ class AIAgentOrchestrator:
             # Mark as form submit if:
             # 1. We have filled at least one field (meaning we're in a form submission flow) AND
             # 2. Either: the selector contains submit keywords OR it's not clearly a CTA button
+            # 3. NOT a radio button or checkbox (these can trigger tracking POSTs but aren't submits)
             # This ensures we capture proof for ANY click after filling fields that isn't clearly a marketing CTA
             has_filled_fields = len(self.state.fields_filled) > 0
-            is_real_submit = has_filled_fields and (is_submit_keyword or not is_cta)
+
+            # Exclude radio buttons and checkboxes - they can trigger tracking POSTs but aren't form submits
+            is_radio_or_checkbox = (
+                "type='radio'" in selector_lower or 'type="radio"' in selector_lower or
+                "type='checkbox'" in selector_lower or 'type="checkbox"' in selector_lower or
+                "[type=radio]" in selector_lower or "[type=checkbox]" in selector_lower
+            )
+
+            is_real_submit = has_filled_fields and (is_submit_keyword or not is_cta) and not is_radio_or_checkbox
 
             # Debug: Log the submit detection logic
             if has_filled_fields:
-                logger.debug(f"   🔍 Submit detection: filled={has_filled_fields}, submit_kw={is_submit_keyword}, is_cta={is_cta}, is_real_submit={is_real_submit}")
+                logger.debug(f"   🔍 Submit detection: filled={has_filled_fields}, submit_kw={is_submit_keyword}, is_cta={is_cta}, radio/checkbox={is_radio_or_checkbox}, is_real_submit={is_real_submit}")
 
             # Track ANY click after filling fields (potential submit attempt)
             # This helps when the LLM detects success after a CTA click that wasn't technically marked as "submit"
