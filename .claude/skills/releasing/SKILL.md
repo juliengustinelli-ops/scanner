@@ -1,11 +1,11 @@
 ---
 name: releasing
-description: Release new versions of InboxHunter. Use this skill when the user asks to release, tag, bump version, or publish a new version of the app. Handles version bumping in all config files, committing, tagging, and pushing to trigger CI/CD.
+description: Releases new versions of InboxHunter by bumping versions, committing, tagging, and pushing to trigger CI/CD. Use when the user asks to release, tag, bump version, publish, ship, deploy to production, create a new version, or push a release. Also use proactively after completing significant features or bug fixes when the user requests a commit and mentions releasing or tagging.
 ---
 
 # Releasing InboxHunter
 
-This skill guides you through releasing new versions of InboxHunter.
+Handles the complete release workflow for InboxHunter desktop app.
 
 ## Quick Release Steps
 
