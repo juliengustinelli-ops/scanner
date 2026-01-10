@@ -65,6 +65,12 @@ jobs:
           - platform: ubuntu-22.04
             rust_target: x86_64-unknown-linux-gnu
             python_sidecar: inboxhunter-automation-x86_64-unknown-linux-gnu
+          - platform: macos-latest
+            rust_target: aarch64-apple-darwin
+            python_sidecar: inboxhunter-automation-aarch64-apple-darwin
+          - platform: macos-latest
+            rust_target: x86_64-apple-darwin
+            python_sidecar: inboxhunter-automation-x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
 
@@ -204,6 +210,39 @@ jobs:
           cp dist/inboxhunter-automation-x86_64-unknown-linux-gnu ../src-tauri/binaries/
           chmod +x ../src-tauri/binaries/inboxhunter-automation-x86_64-unknown-linux-gnu
 
+      - name: Build Python sidecar (macOS)
+        if: matrix.platform == 'macos-latest'
+        working-directory: apps/inboxhunter-app/automation
+        run: |
+          python -m PyInstaller \
+            --onefile \
+            --name "${{ matrix.python_sidecar }}" \
+            --distpath dist \
+            --workpath build \
+            --specpath build \
+            --clean \
+            --hidden-import playwright \
+            --hidden-import playwright.sync_api \
+            --hidden-import openai \
+            --hidden-import httpx \
+            --hidden-import pydantic \
+            --hidden-import sqlite3 \
+            --hidden-import sqlalchemy \
+            --hidden-import aiohttp \
+            --hidden-import aiofiles \
+            --hidden-import certifi \
+            --hidden-import faker \
+            --hidden-import phonenumbers \
+            --hidden-import loguru \
+            --collect-all playwright \
+            --collect-all certifi \
+            main.py
+
+          # Copy to sidecar location
+          mkdir -p ../src-tauri/binaries
+          cp "dist/${{ matrix.python_sidecar }}" ../src-tauri/binaries/
+          chmod +x "../src-tauri/binaries/${{ matrix.python_sidecar }}"
+
       - name: Install npm dependencies
         working-directory: apps/inboxhunter-app
         run: npm ci
@@ -226,6 +265,8 @@ jobs:
             ## Downloads
 
             - **Windows**: Download the `.msi` installer
+            - **macOS (Apple Silicon)**: Download `*_aarch64.dmg` for M1/M2/M3/M4 Macs
+            - **macOS (Intel)**: Download `*_x64.dmg` for Intel Macs
             - **Linux**: Download the `.deb` package or `.AppImage`
 
             ## Installation
@@ -234,6 +275,12 @@ jobs:
             1. Download the `.msi` file
             2. Double-click to install
             3. Run InboxHunter from the Start menu
+
+            ### macOS
+            1. Download the `.dmg` file for your Mac type
+            2. Open the `.dmg` and drag InboxHunter to Applications
+            3. First launch: Right-click → Open (or Control+click → Open)
+            4. Click "Open" in the security dialog
 
             ### Linux (Debian/Ubuntu)
             ```bash
@@ -266,6 +313,15 @@ jobs:
           path: |
             apps/inboxhunter-app/src-tauri/target/release/bundle/deb/*.deb
             apps/inboxhunter-app/src-tauri/target/release/bundle/appimage/*.AppImage
+
+      - name: Upload macOS artifacts
+        if: matrix.platform == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build-${{ matrix.rust_target }}
+          path: |
+            apps/inboxhunter-app/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/inboxhunter-app/src-tauri/target/release/bundle/macos/*.app.tar.gz
 
       # Upload latest.json for the updater
       - name: Upload updater manifest
@@ -316,9 +372,11 @@ jobs:
             --pattern "*.exe" \
             --pattern "*.deb" \
             --pattern "*.AppImage" \
+            --pattern "*.dmg" \
             --pattern "*AppImage*.tar.gz" \
             --pattern "*msi*.zip" \
             --pattern "*nsis*.zip" \
+            --pattern "*.app.tar.gz" \
             --pattern "latest.json" \
             --clobber
 
@@ -351,7 +409,12 @@ jobs:
 
             ### Downloads
             - **Windows**: Download the `.msi` installer
+            - **macOS (Apple Silicon)**: Download `*_aarch64.dmg` for M1/M2/M3/M4 Macs
+            - **macOS (Intel)**: Download `*_x64.dmg` for Intel Macs
             - **Linux**: Download the `.deb` package or `.AppImage`
+
+            ### macOS Installation Note
+            First launch: Right-click → Open (bypasses Gatekeeper for unsigned app)
 
             ### Auto-Update
             Existing users will receive this update automatically.

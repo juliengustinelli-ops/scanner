@@ -39,10 +39,14 @@ Handles the complete release workflow for InboxHunter desktop app.
 
 The CI/CD pipeline automatically:
 1. **check-version** job verifies the version doesn't already exist
-2. **build** jobs run in parallel for Windows (.msi, .exe) and Linux (.deb, .AppImage)
+2. **build** jobs run in parallel for:
+   - Windows (.msi, .exe)
+   - macOS Apple Silicon (.dmg for M1/M2/M3/M4)
+   - macOS Intel (.dmg for x64)
+   - Linux (.deb, .AppImage)
 3. **publish-public** job copies release assets to the public repo (polajenko/inbox-hunter)
 
-The entire process takes ~20-25 minutes.
+The entire process takes ~25-30 minutes.
 
 ## Checking Current Version
 
