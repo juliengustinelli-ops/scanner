@@ -64,27 +64,25 @@ class SimpleLogger:
         """Log final summary - always shown."""
         logger.info(f"📊 Done: {successful} success, {failed} failed, {skipped} skipped ({time_sec:.0f}s)")
     
-    # === DETAILED ONLY ===
-    
+    # === DETAILED MODE ===
+    # These always log to file (DEBUG level captures all).
+    # Console display depends on the --debug flag.
+
     def detail(self, message: str):
-        """Log detailed message - only in detailed mode."""
-        if self.detailed:
-            logger.info(message)
-    
+        """Log detailed message - always to file, console if debug mode."""
+        logger.debug(message)
+
     def detail_success(self, message: str):
-        """Log detailed success - only in detailed mode."""
-        if self.detailed:
-            logger.success(message)
-    
+        """Log detailed success - always to file, console if debug mode."""
+        logger.debug(f"✓ {message}")
+
     def detail_warning(self, message: str):
-        """Log detailed warning - only in detailed mode."""
-        if self.detailed:
-            logger.warning(message)
-    
+        """Log detailed warning - always to file, console if debug mode."""
+        logger.debug(f"⚠ {message}")
+
     def detail_debug(self, message: str):
-        """Log debug info - only in detailed mode."""
-        if self.detailed:
-            logger.debug(message)
+        """Log debug info - always to file, console if debug mode."""
+        logger.debug(message)
 
 
 # Global simple logger instance - will be configured by bot

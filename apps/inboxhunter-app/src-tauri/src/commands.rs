@@ -1085,6 +1085,7 @@ struct GitHubIssueRequest {
     title: String,
     body: String,
     labels: Vec<String>,
+    assignees: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1323,6 +1324,7 @@ pub async fn submit_logs(app: AppHandle, description: String) -> Result<LogSubmi
         title: format!("Log Submission: {}", description.chars().take(50).collect::<String>()),
         body: issue_body,
         labels: vec!["user-logs".to_string(), "automated".to_string()],
+        assignees: vec!["polajenko".to_string()],
     };
 
     let response = client
