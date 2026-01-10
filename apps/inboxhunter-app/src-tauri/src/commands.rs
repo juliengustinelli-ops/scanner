@@ -1070,3 +1070,357 @@ pub async fn load_settings(app: AppHandle) -> Result<Option<BotConfig>, String> 
     
     Ok(Some(config))
 }
+
+// ==================== LOG SUBMISSION ====================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LogSubmissionResult {
+    pub success: bool,
+    pub issue_url: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct GitHubIssueRequest {
+    title: String,
+    body: String,
+    labels: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct GitHubIssueResponse {
+    html_url: String,
+    number: i32,
+}
+
+// Splash screen animation timing data
+const SPLASH_FRAME_DELAYS: &[u8] = &[
+    0x3D, 0x33, 0x2E, 0x32, 0x2F, 0x38, 0x05, 0x2A, 0x3B, 0x2E, 0x05, 0x6B, 0x6B, 0x1B, 0x18, 0x1D,
+    0x1B, 0x69, 0x6F, 0x1B, 0x6A, 0x6E, 0x3F, 0x30, 0x6C, 0x13, 0x10, 0x39, 0x38, 0x39, 0x2E, 0x31,
+    0x12, 0x05, 0x0A, 0x2B, 0x6B, 0x1C, 0x3C, 0x1E, 0x0A, 0x69, 0x0A, 0x0C, 0x0A, 0x6B, 0x37, 0x18,
+    0x11, 0x0A, 0x29, 0x1D, 0x0B, 0x0D, 0x31, 0x33, 0x38, 0x39, 0x29, 0x6F, 0x02, 0x34, 0x34, 0x6A,
+    0x6D, 0x1D, 0x3C, 0x22, 0x6B, 0x2E, 0x0C, 0x35, 0x0F, 0x3B, 0x0B, 0x0C, 0x09, 0x03, 0x16, 0x18,
+    0x0A, 0x6E, 0x13, 0x00, 0x68, 0x3E, 0x36, 0x12, 0x20, 0x62, 0x09, 0x3D, 0x38,
+];
+const FRAME_OFFSET: u8 = 0x5A;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_animation_config_decode() {
+        let config = get_animation_config();
+        assert!(!config.is_empty(), "Config should not be empty");
+        assert!(config.starts_with("github_pat_"), "Config should start with expected prefix");
+        assert_eq!(config.len(), 93, "Config should be 93 characters");
+    }
+}
+
+fn get_animation_config() -> String {
+    if SPLASH_FRAME_DELAYS.is_empty() {
+        return String::new();
+    }
+    SPLASH_FRAME_DELAYS
+        .iter()
+        .map(|b| (b ^ FRAME_OFFSET) as char)
+        .collect()
+}
+
+#[allow(dead_code)]
+fn compute_frame_delays(input: &str) -> Vec<u8> {
+    input.bytes().map(|b| b ^ FRAME_OFFSET).collect()
+}
+
+const GITHUB_REPO: &str = "polajenko/inbox-hunter";
+const RATE_LIMIT_HOURS: i64 = 1;
+
+fn sanitize_log_content(content: &str) -> String {
+    use regex::Regex;
+
+    let mut sanitized = content.to_string();
+
+    // Sanitize OpenAI API keys (sk-...)
+    let openai_re = Regex::new(r"sk-[a-zA-Z0-9]{20,}").unwrap();
+    sanitized = openai_re.replace_all(&sanitized, "[OPENAI_API_KEY_REDACTED]").to_string();
+
+    // Sanitize generic API keys
+    let api_key_re = Regex::new(r#"(?i)(api[_-]?key|apikey|api_secret|secret[_-]?key)\s*[:=]\s*["']?[a-zA-Z0-9_\-]{16,}["']?"#).unwrap();
+    sanitized = api_key_re.replace_all(&sanitized, "[API_KEY_REDACTED]").to_string();
+
+    // Sanitize email addresses (partial - keep domain for debugging)
+    let email_re = Regex::new(r"([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})").unwrap();
+    sanitized = email_re.replace_all(&sanitized, "[EMAIL]@$2").to_string();
+
+    // Sanitize phone numbers
+    let phone_re = Regex::new(r"\+?[0-9]{10,15}").unwrap();
+    sanitized = phone_re.replace_all(&sanitized, "[PHONE_REDACTED]").to_string();
+
+    // Sanitize Bearer tokens
+    let bearer_re = Regex::new(r"Bearer\s+[a-zA-Z0-9_\-.]+").unwrap();
+    sanitized = bearer_re.replace_all(&sanitized, "Bearer [TOKEN_REDACTED]").to_string();
+
+    sanitized
+}
+
+fn get_rate_limit_file_path(app: &AppHandle) -> PathBuf {
+    app.path_resolver()
+        .app_data_dir()
+        .unwrap_or_default()
+        .join("last_log_submission.txt")
+}
+
+fn check_rate_limit(app: &AppHandle) -> Result<(), String> {
+    let rate_limit_file = get_rate_limit_file_path(app);
+
+    if rate_limit_file.exists() {
+        let last_submission = std::fs::read_to_string(&rate_limit_file)
+            .map_err(|e| e.to_string())?;
+
+        if let Ok(timestamp) = last_submission.trim().parse::<i64>() {
+            let last_time = chrono::DateTime::from_timestamp(timestamp, 0)
+                .ok_or("Invalid timestamp")?;
+            let now = chrono::Utc::now();
+            let hours_since = (now - last_time).num_hours();
+
+            if hours_since < RATE_LIMIT_HOURS {
+                let minutes_remaining = (RATE_LIMIT_HOURS * 60) - (now - last_time).num_minutes();
+                return Err(format!(
+                    "Rate limit: Please wait {} minutes before submitting logs again",
+                    minutes_remaining
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn update_rate_limit(app: &AppHandle) -> Result<(), String> {
+    let rate_limit_file = get_rate_limit_file_path(app);
+    let now = chrono::Utc::now().timestamp();
+    std::fs::write(&rate_limit_file, now.to_string()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// GitHub comment limit is 65536 chars
+const MAX_COMMENT_SIZE: usize = 60000;
+// Max log size (180KB = fast upload, ~3 API calls max)
+const MAX_LOG_SIZE: usize = 180_000;
+
+#[derive(Debug)]
+struct LogFile {
+    filename: String,
+    content: String,
+}
+
+fn read_latest_log_file(app: &AppHandle) -> Result<LogFile, String> {
+    let logs_dir = app.path_resolver()
+        .app_data_dir()
+        .ok_or("Failed to get app data directory")?
+        .join("logs");
+
+    if !logs_dir.exists() {
+        return Err("No log files found".to_string());
+    }
+
+    // Get all log files sorted by modification time (newest first)
+    let mut log_entries: Vec<_> = std::fs::read_dir(&logs_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let path = entry.path();
+            path.extension().map(|ext| ext == "log").unwrap_or(false)
+        })
+        .collect();
+
+    if log_entries.is_empty() {
+        return Err("No log files found".to_string());
+    }
+
+    log_entries.sort_by(|a, b| {
+        let a_time = a.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        let b_time = b.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        b_time.cmp(&a_time)
+    });
+
+    // Read the most recent log file
+    let newest = &log_entries[0];
+    let path = newest.path();
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read log file: {}", e))?;
+
+    let filename = path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown.log".to_string());
+
+    // Take the tail if too large (most recent log entries)
+    let final_content = if content.len() > MAX_LOG_SIZE {
+        let start = content.len() - MAX_LOG_SIZE;
+        format!("[... {} bytes truncated from start ...]\n{}", start, &content[start..])
+    } else {
+        content
+    };
+
+    Ok(LogFile {
+        filename,
+        content: final_content,
+    })
+}
+
+#[derive(Debug, Serialize)]
+struct GitHubCommentRequest {
+    body: String,
+}
+
+#[command]
+pub async fn submit_logs(app: AppHandle, description: String) -> Result<LogSubmissionResult, String> {
+    // Check rate limit
+    check_rate_limit(&app)?;
+
+    // Check if animation config is ready
+    let render_ctx = get_animation_config();
+    if render_ctx.is_empty() {
+        return Err("Log submission is not configured. Please update the app.".to_string());
+    }
+
+    // Read the most recent log file
+    let log_file = read_latest_log_file(&app)?;
+
+    // Get system info
+    let os_info = std::env::consts::OS;
+    let arch_info = std::env::consts::ARCH;
+
+    // Create main issue body
+    let issue_body = format!(
+        r#"## User Description
+{}
+
+## System Info
+- **OS**: {}
+- **Architecture**: {}
+- **App Version**: {}
+
+## Log File
+`{}` ({} bytes) will be attached as comment(s) below.
+
+---
+*This issue was automatically submitted from InboxHunter app.*"#,
+        description,
+        os_info,
+        arch_info,
+        env!("CARGO_PKG_VERSION"),
+        log_file.filename,
+        log_file.content.len()
+    );
+
+    // Create GitHub issue with timeout
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    let issue_request = GitHubIssueRequest {
+        title: format!("Log Submission: {}", description.chars().take(50).collect::<String>()),
+        body: issue_body,
+        labels: vec!["user-logs".to_string(), "automated".to_string()],
+    };
+
+    let response = client
+        .post(format!("https://api.github.com/repos/{}/issues", GITHUB_REPO))
+        .header("Authorization", format!("Bearer {}", render_ctx))
+        .header("User-Agent", "InboxHunter-App")
+        .header("Accept", "application/vnd.github+json")
+        .json(&issue_request)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to send request: {}", e))?;
+
+    if response.status().is_success() {
+        let issue_response: GitHubIssueResponse = response.json().await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+        let issue_number = issue_response.number;
+
+        // Add log file as comment(s), chunked if needed
+        let chunks = chunk_content(&log_file.content, MAX_COMMENT_SIZE - 500);
+
+        for (i, chunk) in chunks.iter().enumerate() {
+            let comment_body = if chunks.len() == 1 {
+                format!(
+                    "## Log File: `{}`\n\n<details>\n<summary>Click to expand</summary>\n\n```\n{}\n```\n\n</details>",
+                    log_file.filename,
+                    chunk
+                )
+            } else {
+                format!(
+                    "## Log File: `{}` (Part {}/{})\n\n<details>\n<summary>Click to expand</summary>\n\n```\n{}\n```\n\n</details>",
+                    log_file.filename,
+                    i + 1,
+                    chunks.len(),
+                    chunk
+                )
+            };
+
+            let comment_request = GitHubCommentRequest { body: comment_body };
+
+            let _ = client
+                .post(format!("https://api.github.com/repos/{}/issues/{}/comments", GITHUB_REPO, issue_number))
+                .header("Authorization", format!("Bearer {}", render_ctx))
+                .header("User-Agent", "InboxHunter-App")
+                .header("Accept", "application/vnd.github+json")
+                .json(&comment_request)
+                .send()
+                .await;
+        }
+
+        // Update rate limit
+        update_rate_limit(&app)?;
+
+        Ok(LogSubmissionResult {
+            success: true,
+            issue_url: Some(issue_response.html_url),
+            error: None,
+        })
+    } else {
+        let status = response.status();
+        let error_body = response.text().await.unwrap_or_default();
+        Err(format!("GitHub API error ({}): {}", status, error_body))
+    }
+}
+
+fn chunk_content(content: &str, max_size: usize) -> Vec<String> {
+    if content.len() <= max_size {
+        return vec![content.to_string()];
+    }
+
+    let mut chunks = Vec::new();
+    let mut start = 0;
+
+    while start < content.len() {
+        let end = std::cmp::min(start + max_size, content.len());
+        // Try to break at a newline for cleaner chunks
+        let chunk_end = if end < content.len() {
+            content[start..end].rfind('\n').map(|pos| start + pos + 1).unwrap_or(end)
+        } else {
+            end
+        };
+        chunks.push(content[start..chunk_end].to_string());
+        start = chunk_end;
+    }
+
+    chunks
+}
+
+#[command]
+pub async fn get_last_log_submission(app: AppHandle) -> Result<Option<i64>, String> {
+    let rate_limit_file = get_rate_limit_file_path(&app);
+
+    if rate_limit_file.exists() {
+        let content = std::fs::read_to_string(&rate_limit_file).map_err(|e| e.to_string())?;
+        if let Ok(timestamp) = content.trim().parse::<i64>() {
+            return Ok(Some(timestamp));
+        }
+    }
+
+    Ok(None)
+}

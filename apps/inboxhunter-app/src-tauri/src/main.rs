@@ -59,6 +59,9 @@ fn main() {
             // Settings
             commands::save_settings,
             commands::load_settings,
+            // Log Submission
+            commands::submit_logs,
+            commands::get_last_log_submission,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

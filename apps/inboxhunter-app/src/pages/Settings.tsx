@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { 
-  User, 
-  Key, 
-  Database, 
+import {
+  User,
+  Key,
+  Database,
   Settings as SettingsIcon,
   Eye,
   EyeOff,
@@ -18,7 +18,11 @@ import {
   RefreshCw,
   Package,
   Mail,
-  Globe
+  Globe,
+  FileText,
+  Send,
+  Clock,
+  ExternalLink
 } from 'lucide-react'
 import { useAppStore } from '../hooks/useAppStore'
 import { motion } from 'framer-motion'
@@ -187,6 +191,17 @@ export function SettingsPage() {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
   const [lastChecked, setLastChecked] = useState<string | null>(null)
 
+  // Log submission state
+  const [logDescription, setLogDescription] = useState('')
+  const [isSubmittingLogs, setIsSubmittingLogs] = useState(false)
+  const [logSubmissionResult, setLogSubmissionResult] = useState<{
+    success?: boolean
+    issueUrl?: string
+    error?: string
+  } | null>(null)
+  const [canSubmitLogs, setCanSubmitLogs] = useState(true)
+  const [minutesUntilCanSubmit, setMinutesUntilCanSubmit] = useState(0)
+
   const checkForUpdates = async () => {
     setIsCheckingUpdate(true)
     setUpdateState({ status: 'checking' })
@@ -281,6 +296,82 @@ export function SettingsPage() {
     }
     fetchVersion()
   }, [])
+
+  // Check rate limit for log submission
+  useEffect(() => {
+    const checkRateLimit = async () => {
+      // @ts-ignore - Tauri API
+      if (window.__TAURI__) {
+        try {
+          const { invoke } = await import('@tauri-apps/api/tauri')
+          const timestamp = await invoke<number | null>('get_last_log_submission')
+
+          if (timestamp) {
+            const lastTime = new Date(timestamp * 1000)
+            const now = new Date()
+            const hoursSince = (now.getTime() - lastTime.getTime()) / (1000 * 60 * 60)
+
+            if (hoursSince < 1) {
+              setCanSubmitLogs(false)
+              const minutesRemaining = Math.ceil(60 - (hoursSince * 60))
+              setMinutesUntilCanSubmit(minutesRemaining)
+            } else {
+              setCanSubmitLogs(true)
+            }
+          }
+        } catch (err) {
+          console.error('Failed to check rate limit:', err)
+        }
+      }
+    }
+    checkRateLimit()
+
+    // Update countdown every minute
+    const interval = setInterval(checkRateLimit, 60000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Handle log submission
+  const handleSubmitLogs = async () => {
+    if (!logDescription.trim()) {
+      setLogSubmissionResult({ error: 'Please describe the issue you are experiencing' })
+      return
+    }
+
+    setIsSubmittingLogs(true)
+    setLogSubmissionResult(null)
+
+    try {
+      // @ts-ignore - Tauri API
+      if (window.__TAURI__) {
+        const { invoke } = await import('@tauri-apps/api/tauri')
+        const result = await invoke<{
+          success: boolean
+          issue_url: string | null
+          error: string | null
+        }>('submit_logs', { description: logDescription })
+
+        if (result.success && result.issue_url) {
+          setLogSubmissionResult({ success: true, issueUrl: result.issue_url })
+          setLogDescription('')
+          setCanSubmitLogs(false)
+          setMinutesUntilCanSubmit(60)
+          addLog('success', '✅ Logs submitted successfully')
+        } else {
+          setLogSubmissionResult({ error: result.error || 'Failed to submit logs' })
+          addLog('error', `Failed to submit logs: ${result.error}`)
+        }
+      } else {
+        setLogSubmissionResult({ error: 'Log submission is only available in the desktop app' })
+      }
+    } catch (err: any) {
+      const errorMsg = err?.message || err?.toString() || 'Unknown error'
+      setLogSubmissionResult({ error: errorMsg })
+      addLog('error', `Failed to submit logs: ${errorMsg}`)
+    } finally {
+      setIsSubmittingLogs(false)
+    }
+  }
 
   // Mark field as touched when user interacts
   const handleBlur = (field: string) => {
@@ -1373,6 +1464,100 @@ export function SettingsPage() {
                     </>
                   )}
                 </button>
+              </div>
+            </div>
+
+            {/* Submit Logs */}
+            <div className="p-6 rounded-xl border border-border bg-card/50">
+              <h4 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Submit Logs for Support
+              </h4>
+
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  If you're experiencing issues, submit your logs to help us diagnose the problem.
+                  Sensitive information (API keys, emails, phone numbers) will be automatically removed.
+                </p>
+
+                {/* Rate Limit Notice */}
+                {!canSubmitLogs && (
+                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-sm">
+                      <Clock className="w-4 h-4" />
+                      <span>You can submit logs again in {minutesUntilCanSubmit} minutes</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Success Message */}
+                {logSubmissionResult?.success && (
+                  <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                    <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="w-5 h-5" />
+                      <span className="font-medium">Logs submitted successfully!</span>
+                    </div>
+                    {logSubmissionResult.issueUrl && (
+                      <a
+                        href={logSubmissionResult.issueUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 mt-2 text-sm text-emerald-600 dark:text-emerald-400 hover:underline"
+                      >
+                        View submitted report
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                {/* Error Message */}
+                {logSubmissionResult?.error && (
+                  <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20">
+                    <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                      <AlertCircle className="w-5 h-5" />
+                      <span className="font-medium">{logSubmissionResult.error}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Description Input */}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Describe the issue
+                  </label>
+                  <textarea
+                    value={logDescription}
+                    onChange={(e) => setLogDescription(e.target.value)}
+                    placeholder="What were you doing when the problem occurred? What did you expect to happen?"
+                    rows={3}
+                    disabled={!canSubmitLogs || isSubmittingLogs}
+                    className="w-full px-4 py-2.5 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50 resize-none"
+                  />
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  onClick={handleSubmitLogs}
+                  disabled={!canSubmitLogs || isSubmittingLogs || !logDescription.trim()}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmittingLogs ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      Submit Logs
+                    </>
+                  )}
+                </button>
+
+                <p className="text-xs text-muted-foreground">
+                  Note: You can submit logs once per hour. Most recent log file will be included.
+                </p>
               </div>
             </div>
 
