@@ -169,8 +169,10 @@ jobs:
             --hidden-import faker `
             --hidden-import phonenumbers `
             --hidden-import loguru `
+            --hidden-import loguru._defaults_handler `
             --collect-all playwright `
             --collect-all certifi `
+            --collect-all loguru `
             main.py
 
           # Copy to sidecar location
@@ -201,8 +203,10 @@ jobs:
             --hidden-import faker \
             --hidden-import phonenumbers \
             --hidden-import loguru \
+            --hidden-import loguru._defaults_handler \
             --collect-all playwright \
             --collect-all certifi \
+            --collect-all loguru \
             main.py
 
           # Copy to sidecar location
@@ -234,8 +238,10 @@ jobs:
             --hidden-import faker \
             --hidden-import phonenumbers \
             --hidden-import loguru \
+            --hidden-import loguru._defaults_handler \
             --collect-all playwright \
             --collect-all certifi \
+            --collect-all loguru \
             main.py
 
           # Copy to sidecar location
