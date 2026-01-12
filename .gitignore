@@ -4,3 +4,6 @@ node_modules
 *.log
 release-assets/
 apps/inboxhunter-app/automation/tests/test_config.json
+
+# Claude temp files
+tmpclaude-*

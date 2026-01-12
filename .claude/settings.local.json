@@ -1,4 +1,17 @@
 {
+    "hooks": {
+        "PostToolUse": [
+            {
+                "matcher": "Bash|Write|Edit",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "powershell -ExecutionPolicy Bypass -File .claude/hooks/cleanup-temp-files.ps1"
+                    }
+                ]
+            }
+        ]
+    },
     "permissions": {
         "defaultMode": "bypassPermissions"
     }
