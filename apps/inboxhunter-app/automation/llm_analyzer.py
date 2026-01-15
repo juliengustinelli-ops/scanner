@@ -83,12 +83,22 @@ class LLMPageAnalyzer:
                     const isVisible = (elem) => {
                         if (!elem) return false;
                         const style = window.getComputedStyle(elem);
-                        return style.display !== 'none' && 
-                               style.visibility !== 'hidden' && 
+                        return style.display !== 'none' &&
+                               style.visibility !== 'hidden' &&
                                style.opacity !== '0' &&
                                elem.offsetParent !== null;
                     };
-                    
+
+                    // Safely get className as string (handles SVG elements, etc.)
+                    const getClassName = (elem) => {
+                        if (!elem) return '';
+                        const cn = elem.className;
+                        if (typeof cn === 'string') return cn;
+                        if (cn && cn.baseVal !== undefined) return cn.baseVal; // SVGAnimatedString
+                        if (cn && typeof cn.toString === 'function') return cn.toString();
+                        return '';
+                    };
+
                     const result = {
                         title: document.title,
                         url: window.location.href,
@@ -142,8 +152,8 @@ class LLMPageAnalyzer:
                         // Build form selector
                         let formSelector = '';
                         if (form.id) formSelector = `#${form.id}`;
-                        else if (form.className) {
-                            const firstClass = form.className.split(' ')[0];
+                        else if (getClassName(form)) {
+                            const firstClass = getClassName(form).split(' ')[0];
                             if (firstClass) formSelector = `form.${firstClass}`;
                         }
                         if (!formSelector) formSelector = `form:nth-of-type(${idx + 1})`;
@@ -249,8 +259,8 @@ class LLMPageAnalyzer:
                                 
                                 // Build form selector
                                 if (parentForm.id) formSelector = `#${parentForm.id}`;
-                                else if (parentForm.className) {
-                                    const firstClass = parentForm.className.split(' ')[0];
+                                else if (getClassName(parentForm)) {
+                                    const firstClass = getClassName(parentForm).split(' ')[0];
                                     if (firstClass) formSelector = `form.${firstClass}`;
                                 }
                                 if (!formSelector) formSelector = `form:nth-of-type(${formIdx + 1})`;
@@ -284,8 +294,8 @@ class LLMPageAnalyzer:
                             let hasWrappingLabel = false;
                             
                             if (inputType === 'radio' || inputType === 'checkbox') {
-                                isHiddenInput = input.className.includes('sr-only') || 
-                                              input.className.includes('visually-hidden') ||
+                                isHiddenInput = getClassName(input).includes('sr-only') ||
+                                              getClassName(input).includes('visually-hidden') ||
                                               !isVisible(input);
                                 
                                 if (parentLabel) {
@@ -302,7 +312,7 @@ class LLMPageAnalyzer:
                                 name: input.name,
                                 id: input.id,
                                 placeholder: input.placeholder || '',
-                                className: input.className,
+                                className: getClassName(input),
                                 ariaLabel: input.getAttribute('aria-label') || '',
                                 label: labelText,
                                 value: input.value || '',
@@ -336,7 +346,7 @@ class LLMPageAnalyzer:
                                 name: opt.getAttribute('name') || '',
                                 id: opt.id,
                                 placeholder: '',
-                                className: opt.className,
+                                className: getClassName(opt),
                                 ariaLabel: opt.getAttribute('aria-label') || '',
                                 label: opt.textContent?.trim() || '',
                                 value: opt.getAttribute('value') || '',
@@ -446,13 +456,13 @@ class LLMPageAnalyzer:
                         const isVisibleOrSubmit = isVisible(btn) || (btn.tagName === 'INPUT' && btn.type === 'submit');
                         if (isVisibleOrSubmit) {
                             const btnText = btn.textContent?.trim() || btn.value || btn.innerText?.trim() || '';
-                            const isCTA = isCTAButton(btnText, btn.className);
+                            const isCTA = isCTAButton(btnText, getClassName(btn));
                             result.buttons.push({
                                 text: btnText,
                                 type: btn.type || btn.tagName.toLowerCase(),
                                 id: btn.id,
                                 name: btn.name || '',
-                                className: btn.className,
+                                className: getClassName(btn),
                                 visible: isVisible(btn),
                                 isCTA: isCTA
                             });
@@ -463,7 +473,7 @@ class LLMPageAnalyzer:
                     document.querySelectorAll('a').forEach(link => {
                         if (isVisible(link)) {
                             const linkText = link.textContent?.trim() || '';
-                            const isCTA = isCTAButton(linkText, link.className);
+                            const isCTA = isCTAButton(linkText, getClassName(link));
                             // Only include if it looks like a CTA (not just regular navigation)
                             if (isCTA && linkText.length > 2 && linkText.length < 50) {
                                 // Check if not already added as a button
@@ -474,7 +484,7 @@ class LLMPageAnalyzer:
                                         type: 'link',
                                         id: link.id,
                                         name: '',
-                                        className: link.className,
+                                        className: getClassName(link),
                                         visible: true,
                                         isCTA: true,
                                         href: link.href

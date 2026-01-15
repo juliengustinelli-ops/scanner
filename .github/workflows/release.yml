@@ -137,6 +137,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/AppData/Local/ms-playwright
+            ~/Library/Caches/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
 
       - name: Install Playwright browsers

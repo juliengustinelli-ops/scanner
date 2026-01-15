@@ -35,15 +35,19 @@ class CSVParser:
             return urls
         
         try:
-            with open(self.csv_path, 'r', encoding='utf-8') as f:
+            # Use utf-8-sig to handle Excel BOM (Byte Order Mark)
+            with open(self.csv_path, 'r', encoding='utf-8-sig') as f:
                 reader = csv.DictReader(f)
-                
+
                 # Find URL column (flexible naming)
                 fieldnames = reader.fieldnames or []
                 url_column = None
-                
+
+                # Acceptable column names (case-insensitive, with common variations)
+                url_variants = ['url', 'urls', 'link', 'links', 'landing_page', 'website', 'site']
+
                 for col in fieldnames:
-                    if col.lower() in ['url', 'link', 'landing_page', 'website']:
+                    if col.strip().lower() in url_variants:
                         url_column = col
                         break
                 

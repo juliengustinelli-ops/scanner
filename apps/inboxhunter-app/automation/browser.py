@@ -295,9 +295,19 @@ class BrowserAutomation:
                 )
         
         # Create context with stealth settings
+        # Use platform-appropriate user agent to avoid detection
+        import platform
+        system = platform.system()
+        if system == "Darwin":
+            user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        elif system == "Linux":
+            user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        else:  # Windows
+            user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
         context_options = {
             "viewport": {"width": 1920, "height": 1080},
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "user_agent": user_agent,
             "locale": "en-US",
             "timezone_id": "America/New_York",
             "ignore_https_errors": True,  # Ignore SSL certificate errors

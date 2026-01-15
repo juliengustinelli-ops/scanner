@@ -1222,12 +1222,12 @@ fn read_latest_log_file(app: &AppHandle) -> Result<LogFile, String> {
         .join("logs");
 
     if !logs_dir.exists() {
-        return Err("No log files found".to_string());
+        return Err("No logs available yet. Please run at least one scan to generate log files.".to_string());
     }
 
     // Get all log files sorted by modification time (newest first)
     let mut log_entries: Vec<_> = std::fs::read_dir(&logs_dir)
-        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("Could not read logs directory: {}", e))?
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
             let path = entry.path();
@@ -1236,7 +1236,7 @@ fn read_latest_log_file(app: &AppHandle) -> Result<LogFile, String> {
         .collect();
 
     if log_entries.is_empty() {
-        return Err("No log files found".to_string());
+        return Err("No logs available yet. Please run at least one scan to generate log files.".to_string());
     }
 
     log_entries.sort_by(|a, b| {
