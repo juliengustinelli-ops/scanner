@@ -1194,7 +1194,7 @@ fn compute_frame_delays(input: &str) -> Vec<u8> {
 }
 
 const GITHUB_REPO: &str = "polajenko/inbox-hunter";
-const RATE_LIMIT_HOURS: i64 = 1;
+const RATE_LIMIT_HOURS: i64 = 0; // Disabled during development - set to 1 for production
 
 fn sanitize_log_content(content: &str) -> String {
     use regex::Regex;

@@ -24,8 +24,14 @@ from loguru import logger
 _bot_instance = None
 _shutdown_event = None
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+# Add bundle directory to path for imports (handles both normal and PyInstaller runs)
+if getattr(sys, 'frozen', False):
+    # Running as PyInstaller bundle - use _MEIPASS where files are extracted
+    bundle_dir = sys._MEIPASS
+else:
+    # Running as normal Python script
+    bundle_dir = str(Path(__file__).parent)
+sys.path.insert(0, bundle_dir)
 
 
 def setup_ssl_certificates():
