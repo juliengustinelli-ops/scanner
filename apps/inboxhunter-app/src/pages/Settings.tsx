@@ -356,8 +356,9 @@ export function SettingsPage() {
         if (result.success && result.issue_url) {
           setLogSubmissionResult({ success: true, issueUrl: result.issue_url })
           setLogDescription('')
-          setCanSubmitLogs(false)
-          setMinutesUntilCanSubmit(60)
+          // Rate limit disabled during development
+          setCanSubmitLogs(true)
+          setMinutesUntilCanSubmit(0)
           addLog('success', '✅ Logs submitted successfully')
         } else {
           setLogSubmissionResult({ error: result.error || 'Failed to submit logs' })
@@ -1558,7 +1559,7 @@ export function SettingsPage() {
                 </button>
 
                 <p className="text-xs text-muted-foreground">
-                  Note: You can submit logs once per hour. Most recent log file will be included.
+                  Note: Most recent log file will be included with your submission.
                 </p>
               </div>
             </div>

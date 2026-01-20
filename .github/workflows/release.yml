@@ -183,15 +183,23 @@ jobs:
         working-directory: apps/inboxhunter-app/automation
         shell: pwsh
         run: |
-          # Use absolute path for --paths so PyInstaller can find local modules
-          $AbsPath = (Get-Location).Path
+          # Use --add-data to explicitly include local Python modules
+          # --hidden-import only works for installed packages, not local .py files
           python -m PyInstaller `
             --onefile `
             --name "inboxhunter-automation-x86_64-pc-windows-msvc" `
             --distpath dist `
             --workpath build `
             --specpath build `
-            --paths "$AbsPath" `
+            --add-data "orchestrator.py;." `
+            --add-data "agent_orchestrator.py;." `
+            --add-data "config.py;." `
+            --add-data "browser.py;." `
+            --add-data "form_logic.py;." `
+            --add-data "llm_analyzer.py;." `
+            --add-data "database;database" `
+            --add-data "scrapers;scrapers" `
+            --add-data "utils;utils" `
             --hidden-import playwright `
             --hidden-import playwright.sync_api `
             --hidden-import openai `
@@ -206,20 +214,6 @@ jobs:
             --hidden-import phonenumbers `
             --hidden-import loguru `
             --hidden-import loguru._defaults_handler `
-            --hidden-import orchestrator `
-            --hidden-import agent_orchestrator `
-            --hidden-import config `
-            --hidden-import browser `
-            --hidden-import form_logic `
-            --hidden-import llm_analyzer `
-            --hidden-import utils `
-            --hidden-import utils.helpers `
-            --hidden-import utils.simple_logger `
-            --hidden-import database `
-            --hidden-import database.operations `
-            --hidden-import scrapers `
-            --hidden-import scrapers.csv_parser `
-            --hidden-import scrapers.meta_ads `
             --collect-all playwright `
             main.py
 
@@ -231,14 +225,23 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         working-directory: apps/inboxhunter-app/automation
         run: |
-          # Use absolute path for --paths so PyInstaller can find local modules
+          # Use --add-data to explicitly include local Python modules
+          # --hidden-import only works for installed packages, not local .py files
           python -m PyInstaller \
             --onefile \
             --name "inboxhunter-automation-x86_64-unknown-linux-gnu" \
             --distpath dist \
             --workpath build \
             --specpath build \
-            --paths "$(pwd)" \
+            --add-data "orchestrator.py:." \
+            --add-data "agent_orchestrator.py:." \
+            --add-data "config.py:." \
+            --add-data "browser.py:." \
+            --add-data "form_logic.py:." \
+            --add-data "llm_analyzer.py:." \
+            --add-data "database:database" \
+            --add-data "scrapers:scrapers" \
+            --add-data "utils:utils" \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
@@ -253,20 +256,6 @@ jobs:
             --hidden-import phonenumbers \
             --hidden-import loguru \
             --hidden-import loguru._defaults_handler \
-            --hidden-import orchestrator \
-            --hidden-import agent_orchestrator \
-            --hidden-import config \
-            --hidden-import browser \
-            --hidden-import form_logic \
-            --hidden-import llm_analyzer \
-            --hidden-import utils \
-            --hidden-import utils.helpers \
-            --hidden-import utils.simple_logger \
-            --hidden-import database \
-            --hidden-import database.operations \
-            --hidden-import scrapers \
-            --hidden-import scrapers.csv_parser \
-            --hidden-import scrapers.meta_ads \
             --collect-all playwright \
             main.py
 
@@ -279,14 +268,23 @@ jobs:
         if: matrix.platform == 'macos-latest'
         working-directory: apps/inboxhunter-app/automation
         run: |
-          # Use absolute path for --paths so PyInstaller can find local modules
+          # Use --add-data to explicitly include local Python modules
+          # --hidden-import only works for installed packages, not local .py files
           python -m PyInstaller \
             --onefile \
             --name "${{ matrix.python_sidecar }}" \
             --distpath dist \
             --workpath build \
             --specpath build \
-            --paths "$(pwd)" \
+            --add-data "orchestrator.py:." \
+            --add-data "agent_orchestrator.py:." \
+            --add-data "config.py:." \
+            --add-data "browser.py:." \
+            --add-data "form_logic.py:." \
+            --add-data "llm_analyzer.py:." \
+            --add-data "database:database" \
+            --add-data "scrapers:scrapers" \
+            --add-data "utils:utils" \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
@@ -301,20 +299,6 @@ jobs:
             --hidden-import phonenumbers \
             --hidden-import loguru \
             --hidden-import loguru._defaults_handler \
-            --hidden-import orchestrator \
-            --hidden-import agent_orchestrator \
-            --hidden-import config \
-            --hidden-import browser \
-            --hidden-import form_logic \
-            --hidden-import llm_analyzer \
-            --hidden-import utils \
-            --hidden-import utils.helpers \
-            --hidden-import utils.simple_logger \
-            --hidden-import database \
-            --hidden-import database.operations \
-            --hidden-import scrapers \
-            --hidden-import scrapers.csv_parser \
-            --hidden-import scrapers.meta_ads \
             --collect-all playwright \
             main.py
 
@@ -328,14 +312,23 @@ jobs:
         working-directory: apps/inboxhunter-app/automation
         run: |
           # Python is already x86_64 via setup-python architecture parameter
-          # Use absolute path for --paths so PyInstaller can find local modules
+          # Use --add-data to explicitly include local Python modules
+          # --hidden-import only works for installed packages, not local .py files
           python -m PyInstaller \
             --onefile \
             --name "${{ matrix.python_sidecar }}" \
             --distpath dist \
             --workpath build \
             --specpath build \
-            --paths "$(pwd)" \
+            --add-data "orchestrator.py:." \
+            --add-data "agent_orchestrator.py:." \
+            --add-data "config.py:." \
+            --add-data "browser.py:." \
+            --add-data "form_logic.py:." \
+            --add-data "llm_analyzer.py:." \
+            --add-data "database:database" \
+            --add-data "scrapers:scrapers" \
+            --add-data "utils:utils" \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
@@ -350,20 +343,6 @@ jobs:
             --hidden-import phonenumbers \
             --hidden-import loguru \
             --hidden-import loguru._defaults_handler \
-            --hidden-import orchestrator \
-            --hidden-import agent_orchestrator \
-            --hidden-import config \
-            --hidden-import browser \
-            --hidden-import form_logic \
-            --hidden-import llm_analyzer \
-            --hidden-import utils \
-            --hidden-import utils.helpers \
-            --hidden-import utils.simple_logger \
-            --hidden-import database \
-            --hidden-import database.operations \
-            --hidden-import scrapers \
-            --hidden-import scrapers.csv_parser \
-            --hidden-import scrapers.meta_ads \
             --collect-all playwright \
             main.py
 

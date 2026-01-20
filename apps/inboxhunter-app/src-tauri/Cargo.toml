@@ -1,6 +1,6 @@
 [package]
 name = "inboxhunter-app"
-version = "1.2.26"
+version = "1.2.27"
 description = "AI-powered lead generation and automation platform"
 authors = ["InboxHunter Team"]
 edition = "2021"
