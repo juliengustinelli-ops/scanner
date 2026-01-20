@@ -189,6 +189,7 @@ jobs:
             --distpath dist `
             --workpath build `
             --specpath build `
+            --paths . `
             --hidden-import playwright `
             --hidden-import playwright.sync_api `
             --hidden-import openai `
@@ -203,6 +204,20 @@ jobs:
             --hidden-import phonenumbers `
             --hidden-import loguru `
             --hidden-import loguru._defaults_handler `
+            --hidden-import orchestrator `
+            --hidden-import agent_orchestrator `
+            --hidden-import config `
+            --hidden-import browser `
+            --hidden-import form_logic `
+            --hidden-import llm_analyzer `
+            --hidden-import utils `
+            --hidden-import utils.helpers `
+            --hidden-import utils.simple_logger `
+            --hidden-import database `
+            --hidden-import database.operations `
+            --hidden-import scrapers `
+            --hidden-import scrapers.csv_parser `
+            --hidden-import scrapers.meta_ads `
             --collect-all playwright `
             main.py
 
@@ -220,6 +235,7 @@ jobs:
             --distpath dist \
             --workpath build \
             --specpath build \
+            --paths . \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
@@ -234,6 +250,20 @@ jobs:
             --hidden-import phonenumbers \
             --hidden-import loguru \
             --hidden-import loguru._defaults_handler \
+            --hidden-import orchestrator \
+            --hidden-import agent_orchestrator \
+            --hidden-import config \
+            --hidden-import browser \
+            --hidden-import form_logic \
+            --hidden-import llm_analyzer \
+            --hidden-import utils \
+            --hidden-import utils.helpers \
+            --hidden-import utils.simple_logger \
+            --hidden-import database \
+            --hidden-import database.operations \
+            --hidden-import scrapers \
+            --hidden-import scrapers.csv_parser \
+            --hidden-import scrapers.meta_ads \
             --collect-all playwright \
             main.py
 
@@ -252,6 +282,7 @@ jobs:
             --distpath dist \
             --workpath build \
             --specpath build \
+            --paths . \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
@@ -266,6 +297,20 @@ jobs:
             --hidden-import phonenumbers \
             --hidden-import loguru \
             --hidden-import loguru._defaults_handler \
+            --hidden-import orchestrator \
+            --hidden-import agent_orchestrator \
+            --hidden-import config \
+            --hidden-import browser \
+            --hidden-import form_logic \
+            --hidden-import llm_analyzer \
+            --hidden-import utils \
+            --hidden-import utils.helpers \
+            --hidden-import utils.simple_logger \
+            --hidden-import database \
+            --hidden-import database.operations \
+            --hidden-import scrapers \
+            --hidden-import scrapers.csv_parser \
+            --hidden-import scrapers.meta_ads \
             --collect-all playwright \
             main.py
 
@@ -285,6 +330,7 @@ jobs:
             --distpath dist \
             --workpath build \
             --specpath build \
+            --paths . \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
@@ -299,6 +345,20 @@ jobs:
             --hidden-import phonenumbers \
             --hidden-import loguru \
             --hidden-import loguru._defaults_handler \
+            --hidden-import orchestrator \
+            --hidden-import agent_orchestrator \
+            --hidden-import config \
+            --hidden-import browser \
+            --hidden-import form_logic \
+            --hidden-import llm_analyzer \
+            --hidden-import utils \
+            --hidden-import utils.helpers \
+            --hidden-import utils.simple_logger \
+            --hidden-import database \
+            --hidden-import database.operations \
+            --hidden-import scrapers \
+            --hidden-import scrapers.csv_parser \
+            --hidden-import scrapers.meta_ads \
             --collect-all playwright \
             main.py
 
