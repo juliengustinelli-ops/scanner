@@ -1454,10 +1454,12 @@ class AIAgentOrchestrator:
                             continue
                         # Check if selector actually exists on page
                         try:
+                            # Escape quotes for JavaScript (done outside f-string for Python 3.11 compatibility)
+                            escaped_selector = selector.replace('"', '\\"')
                             exists = await self.page.evaluate(f"""
                                 () => {{
                                     try {{
-                                        return document.querySelector("{selector.replace('"', '\\"')}") !== null;
+                                        return document.querySelector("{escaped_selector}") !== null;
                                     }} catch(e) {{
                                         return false;
                                     }}

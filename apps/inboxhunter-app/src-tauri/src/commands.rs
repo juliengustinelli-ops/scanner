@@ -841,16 +841,19 @@ fn spawn_log_reader(
         });
     }
     
-    // Stream stderr
+    // Stream stderr - also write errors to startup.log so they're captured for support
     let app_handle2 = app;
     if let Some(stderr) = stderr {
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines().flatten() {
-                    let _ = app_handle2.emit_all("bot-log", LogEvent {
-                        level: "error".to_string(),
-                        message: line,
-                    });
+                // Write to startup.log so errors are captured for support submissions
+                write_startup_log(&app_handle2, "error", &line);
+
+                let _ = app_handle2.emit_all("bot-log", LogEvent {
+                    level: "error".to_string(),
+                    message: line,
+                });
             }
         });
     }
