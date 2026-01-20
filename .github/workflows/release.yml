@@ -183,13 +183,15 @@ jobs:
         working-directory: apps/inboxhunter-app/automation
         shell: pwsh
         run: |
+          # Use absolute path for --paths so PyInstaller can find local modules
+          $AbsPath = (Get-Location).Path
           python -m PyInstaller `
             --onefile `
             --name "inboxhunter-automation-x86_64-pc-windows-msvc" `
             --distpath dist `
             --workpath build `
             --specpath build `
-            --paths . `
+            --paths "$AbsPath" `
             --hidden-import playwright `
             --hidden-import playwright.sync_api `
             --hidden-import openai `
@@ -229,13 +231,14 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         working-directory: apps/inboxhunter-app/automation
         run: |
+          # Use absolute path for --paths so PyInstaller can find local modules
           python -m PyInstaller \
             --onefile \
             --name "inboxhunter-automation-x86_64-unknown-linux-gnu" \
             --distpath dist \
             --workpath build \
             --specpath build \
-            --paths . \
+            --paths "$(pwd)" \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
@@ -276,13 +279,14 @@ jobs:
         if: matrix.platform == 'macos-latest'
         working-directory: apps/inboxhunter-app/automation
         run: |
+          # Use absolute path for --paths so PyInstaller can find local modules
           python -m PyInstaller \
             --onefile \
             --name "${{ matrix.python_sidecar }}" \
             --distpath dist \
             --workpath build \
             --specpath build \
-            --paths . \
+            --paths "$(pwd)" \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
@@ -324,13 +328,14 @@ jobs:
         working-directory: apps/inboxhunter-app/automation
         run: |
           # Python is already x86_64 via setup-python architecture parameter
+          # Use absolute path for --paths so PyInstaller can find local modules
           python -m PyInstaller \
             --onefile \
             --name "${{ matrix.python_sidecar }}" \
             --distpath dist \
             --workpath build \
             --specpath build \
-            --paths . \
+            --paths "$(pwd)" \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \

@@ -311,9 +311,11 @@ export function SettingsPage() {
             const now = new Date()
             const hoursSince = (now.getTime() - lastTime.getTime()) / (1000 * 60 * 60)
 
-            if (hoursSince < 1) {
+            // Rate limit disabled during development (set to 0)
+            const RATE_LIMIT_HOURS = 0
+            if (hoursSince < RATE_LIMIT_HOURS) {
               setCanSubmitLogs(false)
-              const minutesRemaining = Math.ceil(60 - (hoursSince * 60))
+              const minutesRemaining = Math.ceil((RATE_LIMIT_HOURS * 60) - (hoursSince * 60))
               setMinutesUntilCanSubmit(minutesRemaining)
             } else {
               setCanSubmitLogs(true)
