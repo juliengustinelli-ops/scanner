@@ -1519,7 +1519,7 @@ dependencies = [
 
 [[package]]
 name = "inboxhunter-app"
-version = "1.2.21"
+version = "1.2.22"
 dependencies = [
  "chrono",
  "dirs",

@@ -184,44 +184,51 @@ fn find_sidecar_binary(app: &AppHandle) -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         // On macOS: AppName.app/Contents/MacOS/executable
-        // Tauri places externalBin at Contents/MacOS/<relative-path>
+        // IMPORTANT: Tauri strips the target triple suffix when bundling on macOS!
+        // So we need to check for both "inboxhunter-automation-aarch64-apple-darwin" AND "inboxhunter-automation"
+        let base_name = "inboxhunter-automation";
+
         if let Some(macos_dir) = exe_path.parent() {
-            // PRIORITY 1: Check Tauri externalBin location (Contents/MacOS/binaries/)
-            // This is where Tauri places sidecars configured with externalBin: ["binaries/..."]
-            let tauri_sidecar = macos_dir.join("binaries").join(&sidecar_name);
-            println!("   Checking Tauri externalBin: {:?}", tauri_sidecar);
-            if tauri_sidecar.exists() {
-                println!("   ✅ Found sidecar in Tauri externalBin location");
-                return Some(tauri_sidecar);
+            // PRIORITY 1: Check for sidecar WITHOUT target triple (how Tauri actually bundles it)
+            let stripped_sidecar = macos_dir.join(base_name);
+            println!("   Checking stripped name: {:?}", stripped_sidecar);
+            if stripped_sidecar.exists() {
+                println!("   ✅ Found sidecar (Tauri strips target triple on macOS)");
+                return Some(stripped_sidecar);
             }
 
-            // Check next to executable (Contents/MacOS/)
+            // Also check with full target triple name (in case behavior changes)
             let sidecar_path = macos_dir.join(&sidecar_name);
-            println!("   Checking macOS dir: {:?}", sidecar_path);
+            println!("   Checking full name: {:?}", sidecar_path);
             if sidecar_path.exists() {
-                println!("   ✅ Found sidecar next to exe");
+                println!("   ✅ Found sidecar with full target triple");
                 return Some(sidecar_path);
             }
 
-            if let Some(contents_dir) = macos_dir.parent() {
-                // Check in bundled automation folder (Resources/_up_/automation/)
-                let automation_sidecar = contents_dir
-                    .join("Resources")
-                    .join("_up_")
-                    .join("automation")
-                    .join(&sidecar_name);
-                println!("   Checking bundled automation: {:?}", automation_sidecar);
-                if automation_sidecar.exists() {
-                    println!("   ✅ Found sidecar in bundled automation folder");
-                    return Some(automation_sidecar);
-                }
+            // Check in binaries subfolder (both names)
+            let binaries_stripped = macos_dir.join("binaries").join(base_name);
+            let binaries_full = macos_dir.join("binaries").join(&sidecar_name);
+            println!("   Checking binaries folder...");
+            if binaries_stripped.exists() {
+                println!("   ✅ Found sidecar in binaries (stripped name)");
+                return Some(binaries_stripped);
+            }
+            if binaries_full.exists() {
+                println!("   ✅ Found sidecar in binaries (full name)");
+                return Some(binaries_full);
+            }
 
-                // Also check Resources directly
-                let resources_path = contents_dir.join("Resources").join(&sidecar_name);
-                println!("   Checking Resources: {:?}", resources_path);
-                if resources_path.exists() {
-                    println!("   ✅ Found sidecar in Resources");
-                    return Some(resources_path);
+            if let Some(contents_dir) = macos_dir.parent() {
+                // Check in Resources (both names)
+                let resources_stripped = contents_dir.join("Resources").join(base_name);
+                let resources_full = contents_dir.join("Resources").join(&sidecar_name);
+                if resources_stripped.exists() {
+                    println!("   ✅ Found sidecar in Resources (stripped name)");
+                    return Some(resources_stripped);
+                }
+                if resources_full.exists() {
+                    println!("   ✅ Found sidecar in Resources (full name)");
+                    return Some(resources_full);
                 }
             }
         }
