@@ -68,7 +68,7 @@ jobs:
           - platform: macos-latest
             rust_target: aarch64-apple-darwin
             python_sidecar: inboxhunter-automation-aarch64-apple-darwin
-          - platform: macos-13
+          - platform: macos-14
             rust_target: x86_64-apple-darwin
             python_sidecar: inboxhunter-automation-x86_64-apple-darwin
 
