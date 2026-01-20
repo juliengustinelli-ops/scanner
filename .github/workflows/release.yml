@@ -12,47 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  # Pre-flight check to ensure version doesn't already exist as a published release
-  check-version:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Get version from tag
-        id: version
-        run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Checking version: $VERSION"
-
-      - name: Check if release already exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Check if a published (non-draft) release exists
-          RELEASE_INFO=$(gh release view "v$VERSION" --repo ${{ github.repository }} --json isDraft,name 2>/dev/null || echo "NOT_FOUND")
-
-          if [[ "$RELEASE_INFO" == "NOT_FOUND" ]]; then
-            echo "✓ No existing release found for v$VERSION - proceeding with build"
-            exit 0
-          fi
-
-          IS_DRAFT=$(echo "$RELEASE_INFO" | jq -r '.isDraft')
-
-          if [[ "$IS_DRAFT" == "false" ]]; then
-            echo "::error::Release v$VERSION already exists and is published!"
-            echo ""
-            echo "A published release for version $VERSION already exists."
-            echo "Please use a new version number."
-            echo ""
-            echo "To check existing versions, run: git tag -l 'v*' | sort -V"
-            exit 1
-          fi
-
-          echo "✓ Found draft release for v$VERSION - will update it"
-
   build:
-    needs: check-version
     permissions:
       contents: write
     strategy:
@@ -68,13 +28,40 @@ jobs:
           - platform: macos-latest
             rust_target: aarch64-apple-darwin
             python_sidecar: inboxhunter-automation-aarch64-apple-darwin
-          - platform: macos-15-intel
+          - platform: macos-13
             rust_target: x86_64-apple-darwin
             python_sidecar: inboxhunter-automation-x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
 
     steps:
+      # Version check (merged into build job to save ~30-60s job startup)
+      - name: Check if release already exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "Checking version: $VERSION"
+
+          # Check if a published (non-draft) release exists
+          RELEASE_INFO=$(gh release view "v$VERSION" --repo ${{ github.repository }} --json isDraft,name 2>/dev/null || echo "NOT_FOUND")
+
+          if [[ "$RELEASE_INFO" == "NOT_FOUND" ]]; then
+            echo "✓ No existing release found for v$VERSION - proceeding with build"
+            exit 0
+          fi
+
+          IS_DRAFT=$(echo "$RELEASE_INFO" | jq -r '.isDraft')
+
+          if [[ "$IS_DRAFT" == "false" ]]; then
+            echo "::error::Release v$VERSION already exists and is published!"
+            echo "Please use a new version number."
+            exit 1
+          fi
+
+          echo "✓ Found draft release for v$VERSION - will update it"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -89,8 +76,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: apps/inboxhunter-app/automation/requirements.txt
+
+      - name: Install uv (fast Python package manager)
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -115,21 +105,33 @@ jobs:
             libgtk-3-dev \
             libjavascriptcoregtk-4.0-dev
 
-      - name: Install Python dependencies
+      # Cache uv packages
+      - name: Cache uv packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            ~/AppData/Local/uv/cache
+            ~/Library/Caches/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('apps/inboxhunter-app/automation/requirements.txt') }}
+          restore-keys: |
+            uv-${{ runner.os }}-
+
+      - name: Install Python dependencies (using uv - 10x faster than pip)
         working-directory: apps/inboxhunter-app/automation
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          uv pip install --system -r requirements.txt
+          uv pip install --system pyinstaller
 
       - name: Get Playwright version
         id: playwright-version
         working-directory: apps/inboxhunter-app/automation
         run: |
-          PLAYWRIGHT_VERSION=$(pip show playwright | grep "^Version:" | sed 's/Version: //')
+          PLAYWRIGHT_VERSION=$(python -c "import playwright; print(playwright.__version__)")
           echo "version=$PLAYWRIGHT_VERSION" >> $GITHUB_OUTPUT
         shell: bash
 
+      # Cache Playwright browsers
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         id: playwright-cache
@@ -145,6 +147,16 @@ jobs:
         working-directory: apps/inboxhunter-app/automation
         run: python -m playwright install chromium
 
+      # Cache PyInstaller intermediate files
+      - name: Cache PyInstaller
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/inboxhunter-app/automation/build
+          key: pyinstaller-${{ runner.os }}-${{ hashFiles('apps/inboxhunter-app/automation/main.py', 'apps/inboxhunter-app/automation/requirements.txt') }}
+          restore-keys: |
+            pyinstaller-${{ runner.os }}-
+
       - name: Build Python sidecar (Windows)
         if: matrix.platform == 'windows-latest'
         working-directory: apps/inboxhunter-app/automation
@@ -156,7 +168,6 @@ jobs:
             --distpath dist `
             --workpath build `
             --specpath build `
-            --clean `
             --hidden-import playwright `
             --hidden-import playwright.sync_api `
             --hidden-import openai `
@@ -172,8 +183,6 @@ jobs:
             --hidden-import loguru `
             --hidden-import loguru._defaults_handler `
             --collect-all playwright `
-            --collect-all certifi `
-            --collect-all loguru `
             main.py
 
           # Copy to sidecar location
@@ -190,7 +199,6 @@ jobs:
             --distpath dist \
             --workpath build \
             --specpath build \
-            --clean \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
@@ -206,8 +214,6 @@ jobs:
             --hidden-import loguru \
             --hidden-import loguru._defaults_handler \
             --collect-all playwright \
-            --collect-all certifi \
-            --collect-all loguru \
             main.py
 
           # Copy to sidecar location
@@ -225,7 +231,6 @@ jobs:
             --distpath dist \
             --workpath build \
             --specpath build \
-            --clean \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
@@ -241,8 +246,6 @@ jobs:
             --hidden-import loguru \
             --hidden-import loguru._defaults_handler \
             --collect-all playwright \
-            --collect-all certifi \
-            --collect-all loguru \
             main.py
 
           # Copy to sidecar location
