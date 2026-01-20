@@ -183,10 +183,28 @@ fn find_sidecar_binary(app: &AppHandle) -> Option<PathBuf> {
     
     #[cfg(target_os = "macos")]
     {
-        // On macOS: AppName.app/Contents/Resources/_up_/automation/sidecar
+        // On macOS: AppName.app/Contents/MacOS/executable
+        // Tauri places externalBin at Contents/MacOS/<relative-path>
         if let Some(macos_dir) = exe_path.parent() {
+            // PRIORITY 1: Check Tauri externalBin location (Contents/MacOS/binaries/)
+            // This is where Tauri places sidecars configured with externalBin: ["binaries/..."]
+            let tauri_sidecar = macos_dir.join("binaries").join(&sidecar_name);
+            println!("   Checking Tauri externalBin: {:?}", tauri_sidecar);
+            if tauri_sidecar.exists() {
+                println!("   ✅ Found sidecar in Tauri externalBin location");
+                return Some(tauri_sidecar);
+            }
+
+            // Check next to executable (Contents/MacOS/)
+            let sidecar_path = macos_dir.join(&sidecar_name);
+            println!("   Checking macOS dir: {:?}", sidecar_path);
+            if sidecar_path.exists() {
+                println!("   ✅ Found sidecar next to exe");
+                return Some(sidecar_path);
+            }
+
             if let Some(contents_dir) = macos_dir.parent() {
-                // Check in bundled automation folder
+                // Check in bundled automation folder (Resources/_up_/automation/)
                 let automation_sidecar = contents_dir
                     .join("Resources")
                     .join("_up_")
@@ -197,7 +215,7 @@ fn find_sidecar_binary(app: &AppHandle) -> Option<PathBuf> {
                     println!("   ✅ Found sidecar in bundled automation folder");
                     return Some(automation_sidecar);
                 }
-                
+
                 // Also check Resources directly
                 let resources_path = contents_dir.join("Resources").join(&sidecar_name);
                 println!("   Checking Resources: {:?}", resources_path);
@@ -206,14 +224,6 @@ fn find_sidecar_binary(app: &AppHandle) -> Option<PathBuf> {
                     return Some(resources_path);
                 }
             }
-            
-            // Check next to executable
-            let sidecar_path = macos_dir.join(&sidecar_name);
-            println!("   Checking macOS dir: {:?}", sidecar_path);
-            if sidecar_path.exists() {
-                println!("   ✅ Found sidecar next to exe");
-                return Some(sidecar_path);
-            }
         }
     }
     
@@ -221,7 +231,16 @@ fn find_sidecar_binary(app: &AppHandle) -> Option<PathBuf> {
     {
         if let Some(exe_dir) = exe_path.parent() {
             println!("   📁 Exe directory: {:?}", exe_dir);
-            
+
+            // PRIORITY 1: Check Tauri externalBin location (binaries/)
+            // This is where Tauri places sidecars configured with externalBin: ["binaries/..."]
+            let tauri_sidecar = exe_dir.join("binaries").join(&sidecar_name);
+            println!("   Checking Tauri externalBin: {:?}", tauri_sidecar);
+            if tauri_sidecar.exists() {
+                println!("   ✅ Found sidecar in Tauri externalBin location");
+                return Some(tauri_sidecar);
+            }
+
             // Check in automation folder next to exe
             let automation_sidecar = exe_dir.join("automation").join(&sidecar_name);
             println!("   Checking: {:?}", automation_sidecar);
@@ -282,20 +301,29 @@ fn find_sidecar_binary(app: &AppHandle) -> Option<PathBuf> {
     #[cfg(target_os = "linux")]
     {
         if let Some(exe_dir) = exe_path.parent() {
+            // PRIORITY 1: Check Tauri externalBin location (binaries/)
+            // This is where Tauri places sidecars configured with externalBin: ["binaries/..."]
+            let tauri_sidecar = exe_dir.join("binaries").join(&sidecar_name);
+            println!("   Checking Tauri externalBin: {:?}", tauri_sidecar);
+            if tauri_sidecar.exists() {
+                println!("   ✅ Found sidecar in Tauri externalBin location");
+                return Some(tauri_sidecar);
+            }
+
             // Check in automation folder
             let automation_sidecar = exe_dir.join("automation").join(&sidecar_name);
             if automation_sidecar.exists() {
                 println!("   ✅ Found sidecar in automation folder");
                 return Some(automation_sidecar);
             }
-            
+
             // Check in _up_/automation (Tauri resource pattern)
             let up_automation_sidecar = exe_dir.join("_up_").join("automation").join(&sidecar_name);
             if up_automation_sidecar.exists() {
                 println!("   ✅ Found sidecar in _up_/automation folder");
                 return Some(up_automation_sidecar);
             }
-            
+
             let sidecar_path = exe_dir.join(&sidecar_name);
             if sidecar_path.exists() {
                 println!("   ✅ Found sidecar next to exe");
@@ -622,13 +650,23 @@ pub async fn start_bot(
     let use_python_first = is_dev_mode && automation_path.is_some();
     let use_sidecar_first = !is_dev_mode && sidecar_path.is_some();
 
+    // Log startup attempt
+    write_startup_log(&app, "info", &format!("Starting InboxHunter Bot v{}", app_version));
+
     if use_python_first || (automation_path.is_some() && sidecar_path.is_none()) {
         // Python mode: Use bundled or development automation scripts
         let automation_path = automation_path.unwrap();
         println!("🐍 Running with Python automation scripts (live code)");
+        write_startup_log(&app, "info", "Running with Python automation scripts");
 
-        let python_cmd = find_dev_python(&automation_path)
-            .ok_or("Python not found. Please install Python 3.9+ and set up the virtual environment:\ncd automation && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && playwright install chromium")?;
+        let python_cmd = match find_dev_python(&automation_path) {
+            Some(cmd) => cmd,
+            None => {
+                let error_msg = "Python not found. Please install Python 3.9+ and set up the virtual environment:\ncd automation && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && playwright install chromium";
+                write_startup_log(&app, "error", error_msg);
+                return Err(error_msg.to_string());
+            }
+        };
 
         let main_script = automation_path.join("main.py");
 
@@ -664,8 +702,14 @@ pub async fn start_bot(
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
 
-        let mut child = cmd.spawn()
-            .map_err(|e| format!("Failed to start bot: {}", e))?;
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                let error_msg = format!("Failed to start bot: {}", e);
+                write_startup_log(&app, "error", &error_msg);
+                return Err(error_msg);
+            }
+        };
 
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -682,6 +726,7 @@ pub async fn start_bot(
             *running = true;
         }
 
+        write_startup_log(&app, "success", "Bot started successfully (Python mode)");
         // Stream stdout
         spawn_log_reader(stdout, stderr, app);
 
@@ -689,6 +734,7 @@ pub async fn start_bot(
         let sidecar_path = sidecar_path.unwrap();
         println!("📦 Running with sidecar binary (self-contained mode)");
         println!("   Sidecar: {}", sidecar_path.display());
+        write_startup_log(&app, "info", &format!("Running with sidecar binary: {:?}", sidecar_path));
 
         let mut cmd = Command::new(&sidecar_path);
         cmd.args(&args)
@@ -713,38 +759,45 @@ pub async fn start_bot(
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
         
-        let mut child = cmd.spawn()
-            .map_err(|e| format!("Failed to start sidecar: {}", e))?;
-        
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                let error_msg = format!("Failed to start sidecar: {}", e);
+                write_startup_log(&app, "error", &error_msg);
+                return Err(error_msg);
+            }
+        };
+
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
-        
+
         // Store process
         {
             let mut process = state.bot_process.lock().map_err(|e| e.to_string())?;
             *process = Some(child);
         }
-        
+
         // Mark as running
         {
             let mut running = state.bot_running.lock().map_err(|e| e.to_string())?;
             *running = true;
         }
-        
+
+        write_startup_log(&app, "success", "Bot started successfully (sidecar mode)");
         // Stream stdout
         spawn_log_reader(stdout, stderr, app);
 
     } else {
-        return Err(
-            "Could not find automation scripts or sidecar binary.\n\n\
+        let error_msg = "Could not find automation scripts or sidecar binary.\n\n\
             For local/development builds:\n\
             - Python 3.9+ must be installed\n\
             - Set up venv: cd automation && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && playwright install chromium\n\n\
             For production builds from CI:\n\
-            - The sidecar binary should be automatically bundled (no Python needed)".to_string()
-        );
+            - The sidecar binary should be automatically bundled (no Python needed)";
+        write_startup_log(&app, "error", error_msg);
+        return Err(error_msg.to_string());
     }
-    
+
     Ok("Bot started successfully".to_string())
 }
 
@@ -1208,6 +1261,29 @@ fn update_rate_limit(app: &AppHandle) -> Result<(), String> {
 const MAX_COMMENT_SIZE: usize = 60000;
 // Max log size (180KB = fast upload, ~3 API calls max)
 const MAX_LOG_SIZE: usize = 180_000;
+
+/// Write a startup log message to the logs directory
+/// This ensures startup errors can be submitted for support
+fn write_startup_log(app: &AppHandle, level: &str, message: &str) {
+    if let Some(data_dir) = app.path_resolver().app_data_dir() {
+        let logs_dir = data_dir.join("logs");
+        if std::fs::create_dir_all(&logs_dir).is_ok() {
+            let log_file = logs_dir.join("startup.log");
+            let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+            let log_line = format!("{} | {} | {}\n", timestamp, level.to_uppercase(), message);
+
+            // Append to startup log file
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_file)
+            {
+                use std::io::Write;
+                let _ = file.write_all(log_line.as_bytes());
+            }
+        }
+    }
+}
 
 #[derive(Debug)]
 struct LogFile {
