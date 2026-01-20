@@ -234,8 +234,8 @@ jobs:
           cp dist/inboxhunter-automation-x86_64-unknown-linux-gnu ../src-tauri/binaries/
           chmod +x ../src-tauri/binaries/inboxhunter-automation-x86_64-unknown-linux-gnu
 
-      - name: Build Python sidecar (macOS)
-        if: startsWith(matrix.platform, 'macos')
+      - name: Build Python sidecar (macOS Apple Silicon)
+        if: matrix.platform == 'macos-latest'
         working-directory: apps/inboxhunter-app/automation
         run: |
           python -m PyInstaller \
@@ -266,6 +266,44 @@ jobs:
           cp "dist/${{ matrix.python_sidecar }}" ../src-tauri/binaries/
           chmod +x "../src-tauri/binaries/${{ matrix.python_sidecar }}"
 
+      - name: Build Python sidecar (macOS Intel via Rosetta)
+        if: matrix.platform == 'macos-14' && matrix.rust_target == 'x86_64-apple-darwin'
+        working-directory: apps/inboxhunter-app/automation
+        run: |
+          # Use Rosetta to run Python in x86_64 mode for Intel Mac builds
+          arch -x86_64 python -m PyInstaller \
+            --onefile \
+            --name "${{ matrix.python_sidecar }}" \
+            --distpath dist \
+            --workpath build \
+            --specpath build \
+            --hidden-import playwright \
+            --hidden-import playwright.sync_api \
+            --hidden-import openai \
+            --hidden-import httpx \
+            --hidden-import pydantic \
+            --hidden-import sqlite3 \
+            --hidden-import sqlalchemy \
+            --hidden-import aiohttp \
+            --hidden-import aiofiles \
+            --hidden-import certifi \
+            --hidden-import faker \
+            --hidden-import phonenumbers \
+            --hidden-import loguru \
+            --hidden-import loguru._defaults_handler \
+            --collect-all playwright \
+            main.py
+
+          # Copy to sidecar location
+          mkdir -p ../src-tauri/binaries
+          cp "dist/${{ matrix.python_sidecar }}" ../src-tauri/binaries/
+          chmod +x "../src-tauri/binaries/${{ matrix.python_sidecar }}"
+
+          # Also create a copy with the host architecture name for tauri-build validation
+          # tauri-build checks for sidecar using host arch, even when cross-compiling
+          cp "dist/${{ matrix.python_sidecar }}" ../src-tauri/binaries/inboxhunter-automation-aarch64-apple-darwin
+          chmod +x "../src-tauri/binaries/inboxhunter-automation-aarch64-apple-darwin"
+
       - name: Install npm dependencies
         working-directory: apps/inboxhunter-app
         run: npm ci
@@ -278,6 +316,7 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         with:
           projectPath: apps/inboxhunter-app
+          args: --target ${{ matrix.rust_target }}
           tagName: v__VERSION__
           releaseName: 'InboxHunter v__VERSION__'
           releaseBody: |
