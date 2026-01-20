@@ -85,10 +85,18 @@ jobs:
           cache: 'npm'
           cache-dependency-path: apps/inboxhunter-app/package-lock.json
 
-      - name: Setup Python
+      - name: Setup Python (native)
+        if: matrix.rust_target != 'x86_64-apple-darwin' || matrix.platform != 'macos-14'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Setup Python (x86_64 via Rosetta for Intel Mac build)
+        if: matrix.rust_target == 'x86_64-apple-darwin' && matrix.platform == 'macos-14'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
 
       - name: Install uv (fast Python package manager)
         uses: astral-sh/setup-uv@v4
@@ -270,8 +278,8 @@ jobs:
         if: matrix.platform == 'macos-14' && matrix.rust_target == 'x86_64-apple-darwin'
         working-directory: apps/inboxhunter-app/automation
         run: |
-          # Use Rosetta to run Python in x86_64 mode for Intel Mac builds
-          arch -x86_64 python -m PyInstaller \
+          # Python is already x86_64 via setup-python architecture parameter
+          python -m PyInstaller \
             --onefile \
             --name "${{ matrix.python_sidecar }}" \
             --distpath dist \
