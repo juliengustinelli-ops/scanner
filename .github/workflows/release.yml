@@ -185,21 +185,23 @@ jobs:
         run: |
           # Use --add-data to explicitly include local Python modules
           # --hidden-import only works for installed packages, not local .py files
+          # Use absolute paths because PyInstaller resolves relative to specpath
+          $AutomationDir = (Get-Location).Path
           python -m PyInstaller `
             --onefile `
             --name "inboxhunter-automation-x86_64-pc-windows-msvc" `
             --distpath dist `
             --workpath build `
             --specpath build `
-            --add-data "orchestrator.py;." `
-            --add-data "agent_orchestrator.py;." `
-            --add-data "config.py;." `
-            --add-data "browser.py;." `
-            --add-data "form_logic.py;." `
-            --add-data "llm_analyzer.py;." `
-            --add-data "database;database" `
-            --add-data "scrapers;scrapers" `
-            --add-data "utils;utils" `
+            --add-data "$AutomationDir\orchestrator.py;." `
+            --add-data "$AutomationDir\agent_orchestrator.py;." `
+            --add-data "$AutomationDir\config.py;." `
+            --add-data "$AutomationDir\browser.py;." `
+            --add-data "$AutomationDir\form_logic.py;." `
+            --add-data "$AutomationDir\llm_analyzer.py;." `
+            --add-data "$AutomationDir\database;database" `
+            --add-data "$AutomationDir\scrapers;scrapers" `
+            --add-data "$AutomationDir\utils;utils" `
             --hidden-import playwright `
             --hidden-import playwright.sync_api `
             --hidden-import openai `
@@ -227,21 +229,23 @@ jobs:
         run: |
           # Use --add-data to explicitly include local Python modules
           # --hidden-import only works for installed packages, not local .py files
+          # Use absolute paths because PyInstaller resolves relative to specpath
+          AUTOMATION_DIR="$(pwd)"
           python -m PyInstaller \
             --onefile \
             --name "inboxhunter-automation-x86_64-unknown-linux-gnu" \
             --distpath dist \
             --workpath build \
             --specpath build \
-            --add-data "orchestrator.py:." \
-            --add-data "agent_orchestrator.py:." \
-            --add-data "config.py:." \
-            --add-data "browser.py:." \
-            --add-data "form_logic.py:." \
-            --add-data "llm_analyzer.py:." \
-            --add-data "database:database" \
-            --add-data "scrapers:scrapers" \
-            --add-data "utils:utils" \
+            --add-data "$AUTOMATION_DIR/orchestrator.py:." \
+            --add-data "$AUTOMATION_DIR/agent_orchestrator.py:." \
+            --add-data "$AUTOMATION_DIR/config.py:." \
+            --add-data "$AUTOMATION_DIR/browser.py:." \
+            --add-data "$AUTOMATION_DIR/form_logic.py:." \
+            --add-data "$AUTOMATION_DIR/llm_analyzer.py:." \
+            --add-data "$AUTOMATION_DIR/database:database" \
+            --add-data "$AUTOMATION_DIR/scrapers:scrapers" \
+            --add-data "$AUTOMATION_DIR/utils:utils" \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
@@ -270,21 +274,23 @@ jobs:
         run: |
           # Use --add-data to explicitly include local Python modules
           # --hidden-import only works for installed packages, not local .py files
+          # Use absolute paths because PyInstaller resolves relative to specpath
+          AUTOMATION_DIR="$(pwd)"
           python -m PyInstaller \
             --onefile \
             --name "${{ matrix.python_sidecar }}" \
             --distpath dist \
             --workpath build \
             --specpath build \
-            --add-data "orchestrator.py:." \
-            --add-data "agent_orchestrator.py:." \
-            --add-data "config.py:." \
-            --add-data "browser.py:." \
-            --add-data "form_logic.py:." \
-            --add-data "llm_analyzer.py:." \
-            --add-data "database:database" \
-            --add-data "scrapers:scrapers" \
-            --add-data "utils:utils" \
+            --add-data "$AUTOMATION_DIR/orchestrator.py:." \
+            --add-data "$AUTOMATION_DIR/agent_orchestrator.py:." \
+            --add-data "$AUTOMATION_DIR/config.py:." \
+            --add-data "$AUTOMATION_DIR/browser.py:." \
+            --add-data "$AUTOMATION_DIR/form_logic.py:." \
+            --add-data "$AUTOMATION_DIR/llm_analyzer.py:." \
+            --add-data "$AUTOMATION_DIR/database:database" \
+            --add-data "$AUTOMATION_DIR/scrapers:scrapers" \
+            --add-data "$AUTOMATION_DIR/utils:utils" \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
@@ -314,21 +320,23 @@ jobs:
           # Python is already x86_64 via setup-python architecture parameter
           # Use --add-data to explicitly include local Python modules
           # --hidden-import only works for installed packages, not local .py files
+          # Use absolute paths because PyInstaller resolves relative to specpath
+          AUTOMATION_DIR="$(pwd)"
           python -m PyInstaller \
             --onefile \
             --name "${{ matrix.python_sidecar }}" \
             --distpath dist \
             --workpath build \
             --specpath build \
-            --add-data "orchestrator.py:." \
-            --add-data "agent_orchestrator.py:." \
-            --add-data "config.py:." \
-            --add-data "browser.py:." \
-            --add-data "form_logic.py:." \
-            --add-data "llm_analyzer.py:." \
-            --add-data "database:database" \
-            --add-data "scrapers:scrapers" \
-            --add-data "utils:utils" \
+            --add-data "$AUTOMATION_DIR/orchestrator.py:." \
+            --add-data "$AUTOMATION_DIR/agent_orchestrator.py:." \
+            --add-data "$AUTOMATION_DIR/config.py:." \
+            --add-data "$AUTOMATION_DIR/browser.py:." \
+            --add-data "$AUTOMATION_DIR/form_logic.py:." \
+            --add-data "$AUTOMATION_DIR/llm_analyzer.py:." \
+            --add-data "$AUTOMATION_DIR/database:database" \
+            --add-data "$AUTOMATION_DIR/scrapers:scrapers" \
+            --add-data "$AUTOMATION_DIR/utils:utils" \
             --hidden-import playwright \
             --hidden-import playwright.sync_api \
             --hidden-import openai \
