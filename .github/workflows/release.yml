@@ -140,7 +140,7 @@ jobs:
         id: playwright-version
         working-directory: apps/inboxhunter-app/automation
         run: |
-          PLAYWRIGHT_VERSION=$(python -c "import playwright; print(playwright.__version__)")
+          PLAYWRIGHT_VERSION=$(pip show playwright | grep "^Version:" | sed 's/Version: //')
           echo "version=$PLAYWRIGHT_VERSION" >> $GITHUB_OUTPUT
         shell: bash
 
