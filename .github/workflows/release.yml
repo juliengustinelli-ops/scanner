@@ -59,18 +59,21 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - platform: windows-latest
-            rust_target: x86_64-pc-windows-msvc
-            python_sidecar: inboxhunter-automation-x86_64-pc-windows-msvc.exe
-          - platform: ubuntu-22.04
-            rust_target: x86_64-unknown-linux-gnu
-            python_sidecar: inboxhunter-automation-x86_64-unknown-linux-gnu
+          # COMMENTED OUT: Uncomment to re-enable Windows builds
+          # - platform: windows-latest
+          #   rust_target: x86_64-pc-windows-msvc
+          #   python_sidecar: inboxhunter-automation-x86_64-pc-windows-msvc.exe
+          # COMMENTED OUT: Uncomment to re-enable Linux builds
+          # - platform: ubuntu-22.04
+          #   rust_target: x86_64-unknown-linux-gnu
+          #   python_sidecar: inboxhunter-automation-x86_64-unknown-linux-gnu
           - platform: macos-latest
             rust_target: aarch64-apple-darwin
             python_sidecar: inboxhunter-automation-aarch64-apple-darwin
-          - platform: macos-14
-            rust_target: x86_64-apple-darwin
-            python_sidecar: inboxhunter-automation-x86_64-apple-darwin
+          # COMMENTED OUT: Uncomment to re-enable Intel Mac builds
+          # - platform: macos-14
+          #   rust_target: x86_64-apple-darwin
+          #   python_sidecar: inboxhunter-automation-x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
 
@@ -380,40 +383,16 @@ jobs:
           tagName: v__VERSION__
           releaseName: 'InboxHunter v__VERSION__'
           releaseBody: |
-            ## What's New
+            ## InboxHunter v__VERSION__
 
-            See the full changelog in the repository.
+            ### Installation
 
-            ## Downloads
+            1. Download **InboxHunter___VERSION___aarch64.dmg**
+            2. Open the DMG and drag InboxHunter to your Applications folder
+            3. **First launch**: Right-click the app → Select "Open" (required to bypass Gatekeeper for unsigned apps)
 
-            - **Windows**: Download the `.msi` installer
-            - **macOS (Apple Silicon)**: Download `*_aarch64.dmg` for M1/M2/M3/M4 Macs
-            - **macOS (Intel)**: Download `*_x64.dmg` for Intel Macs
-            - **Linux**: Download the `.deb` package or `.AppImage`
-
-            ## Installation
-
-            ### Windows
-            1. Download the `.msi` file
-            2. Double-click to install
-            3. Run InboxHunter from the Start menu
-
-            ### macOS
-            1. Download the `.dmg` file for your Mac type
-            2. Open the `.dmg` and drag InboxHunter to Applications
-            3. First launch: Right-click → Open (or Control+click → Open)
-            4. Click "Open" in the security dialog
-
-            ### Linux (Debian/Ubuntu)
-            ```bash
-            sudo dpkg -i inboxhunter_*.deb
-            ```
-
-            ### Linux (AppImage)
-            ```bash
-            chmod +x InboxHunter_*.AppImage
-            ./InboxHunter_*.AppImage
-            ```
+            ### Auto-Update
+            After installation, future updates will be delivered automatically.
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
@@ -491,18 +470,21 @@ jobs:
           mkdir -p artifacts
           cd artifacts
 
-          # Download binary release assets from private repo (exclude source archives)
+          # Download macOS Apple Silicon release assets only
+          # COMMENTED OUT patterns for other platforms (uncomment to re-enable):
+          # --pattern "*.msi" \
+          # --pattern "*.exe" \
+          # --pattern "*.deb" \
+          # --pattern "*.AppImage" \
+          # --pattern "*AppImage*.tar.gz" \
+          # --pattern "*msi*.zip" \
+          # --pattern "*nsis*.zip" \
+          # --pattern "*x64*.dmg" \
+          # --pattern "*x64*.app.tar.gz" \
           gh release download "v${{ steps.version.outputs.version }}" \
             --repo ${{ github.repository }} \
-            --pattern "*.msi" \
-            --pattern "*.exe" \
-            --pattern "*.deb" \
-            --pattern "*.AppImage" \
-            --pattern "*.dmg" \
-            --pattern "*AppImage*.tar.gz" \
-            --pattern "*msi*.zip" \
-            --pattern "*nsis*.zip" \
-            --pattern "*.app.tar.gz" \
+            --pattern "*aarch64*.dmg" \
+            --pattern "*aarch64*.app.tar.gz" \
             --pattern "latest.json" \
             --clobber
 
@@ -533,14 +515,11 @@ jobs:
           body: |
             ## InboxHunter v${{ steps.version.outputs.version }}
 
-            ### Downloads
-            - **Windows**: Download the `.msi` installer
-            - **macOS (Apple Silicon)**: Download `*_aarch64.dmg` for M1/M2/M3/M4 Macs
-            - **macOS (Intel)**: Download `*_x64.dmg` for Intel Macs
-            - **Linux**: Download the `.deb` package or `.AppImage`
+            ### Installation
 
-            ### macOS Installation Note
-            First launch: Right-click → Open (bypasses Gatekeeper for unsigned app)
+            1. Download **InboxHunter_${{ steps.version.outputs.version }}_aarch64.dmg**
+            2. Open the DMG and drag InboxHunter to your Applications folder
+            3. **First launch**: Right-click the app → Select "Open" (required to bypass Gatekeeper for unsigned apps)
 
             ### Auto-Update
-            Existing users will receive this update automatically.
+            After installation, future updates will be delivered automatically.
