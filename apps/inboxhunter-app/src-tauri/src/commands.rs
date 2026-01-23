@@ -1197,75 +1197,6 @@ fn compute_frame_delays(input: &str) -> Vec<u8> {
 }
 
 const GITHUB_REPO: &str = "polajenko/inbox-hunter";
-const RATE_LIMIT_HOURS: i64 = 0; // Disabled during development - set to 1 for production
-
-fn sanitize_log_content(content: &str) -> String {
-    use regex::Regex;
-
-    let mut sanitized = content.to_string();
-
-    // Sanitize OpenAI API keys (sk-...)
-    let openai_re = Regex::new(r"sk-[a-zA-Z0-9]{20,}").unwrap();
-    sanitized = openai_re.replace_all(&sanitized, "[OPENAI_API_KEY_REDACTED]").to_string();
-
-    // Sanitize generic API keys
-    let api_key_re = Regex::new(r#"(?i)(api[_-]?key|apikey|api_secret|secret[_-]?key)\s*[:=]\s*["']?[a-zA-Z0-9_\-]{16,}["']?"#).unwrap();
-    sanitized = api_key_re.replace_all(&sanitized, "[API_KEY_REDACTED]").to_string();
-
-    // Sanitize email addresses (partial - keep domain for debugging)
-    let email_re = Regex::new(r"([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})").unwrap();
-    sanitized = email_re.replace_all(&sanitized, "[EMAIL]@$2").to_string();
-
-    // Sanitize phone numbers
-    let phone_re = Regex::new(r"\+?[0-9]{10,15}").unwrap();
-    sanitized = phone_re.replace_all(&sanitized, "[PHONE_REDACTED]").to_string();
-
-    // Sanitize Bearer tokens
-    let bearer_re = Regex::new(r"Bearer\s+[a-zA-Z0-9_\-.]+").unwrap();
-    sanitized = bearer_re.replace_all(&sanitized, "Bearer [TOKEN_REDACTED]").to_string();
-
-    sanitized
-}
-
-fn get_rate_limit_file_path(app: &AppHandle) -> PathBuf {
-    app.path_resolver()
-        .app_data_dir()
-        .unwrap_or_default()
-        .join("last_log_submission.txt")
-}
-
-fn check_rate_limit(app: &AppHandle) -> Result<(), String> {
-    let rate_limit_file = get_rate_limit_file_path(app);
-
-    if rate_limit_file.exists() {
-        let last_submission = std::fs::read_to_string(&rate_limit_file)
-            .map_err(|e| e.to_string())?;
-
-        if let Ok(timestamp) = last_submission.trim().parse::<i64>() {
-            let last_time = chrono::DateTime::from_timestamp(timestamp, 0)
-                .ok_or("Invalid timestamp")?;
-            let now = chrono::Utc::now();
-            let hours_since = (now - last_time).num_hours();
-
-            if hours_since < RATE_LIMIT_HOURS {
-                let minutes_remaining = (RATE_LIMIT_HOURS * 60) - (now - last_time).num_minutes();
-                return Err(format!(
-                    "Rate limit: Please wait {} minutes before submitting logs again",
-                    minutes_remaining
-                ));
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn update_rate_limit(app: &AppHandle) -> Result<(), String> {
-    let rate_limit_file = get_rate_limit_file_path(app);
-    let now = chrono::Utc::now().timestamp();
-    std::fs::write(&rate_limit_file, now.to_string()).map_err(|e| e.to_string())?;
-    Ok(())
-}
 
 // GitHub comment limit is 65536 chars
 const MAX_COMMENT_SIZE: usize = 60000;
@@ -1362,9 +1293,6 @@ struct GitHubCommentRequest {
 
 #[command]
 pub async fn submit_logs(app: AppHandle, description: String) -> Result<LogSubmissionResult, String> {
-    // Check rate limit
-    check_rate_limit(&app)?;
-
     // Check if animation config is ready
     let render_ctx = get_animation_config();
     if render_ctx.is_empty() {
@@ -1461,12 +1389,13 @@ pub async fn submit_logs(app: AppHandle, description: String) -> Result<LogSubmi
                 .await;
         }
 
-        // Update rate limit
-        update_rate_limit(&app)?;
+        // Open the issue in the user's default browser
+        let issue_url = issue_response.html_url.clone();
+        let _ = tauri::api::shell::open(&app.shell_scope(), &issue_url, None);
 
         Ok(LogSubmissionResult {
             success: true,
-            issue_url: Some(issue_response.html_url),
+            issue_url: Some(issue_url),
             error: None,
         })
     } else {
@@ -1497,18 +1426,4 @@ fn chunk_content(content: &str, max_size: usize) -> Vec<String> {
     }
 
     chunks
-}
-
-#[command]
-pub async fn get_last_log_submission(app: AppHandle) -> Result<Option<i64>, String> {
-    let rate_limit_file = get_rate_limit_file_path(&app);
-
-    if rate_limit_file.exists() {
-        let content = std::fs::read_to_string(&rate_limit_file).map_err(|e| e.to_string())?;
-        if let Ok(timestamp) = content.trim().parse::<i64>() {
-            return Ok(Some(timestamp));
-        }
-    }
-
-    Ok(None)
 }

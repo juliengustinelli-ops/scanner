@@ -17,11 +17,9 @@ import {
   Sparkles,
   RefreshCw,
   Package,
-  Mail,
   Globe,
   FileText,
   Send,
-  Clock,
   ExternalLink
 } from 'lucide-react'
 import { useAppStore } from '../hooks/useAppStore'
@@ -199,8 +197,6 @@ export function SettingsPage() {
     issueUrl?: string
     error?: string
   } | null>(null)
-  const [canSubmitLogs, setCanSubmitLogs] = useState(true)
-  const [minutesUntilCanSubmit, setMinutesUntilCanSubmit] = useState(0)
 
   const checkForUpdates = async () => {
     setIsCheckingUpdate(true)
@@ -297,42 +293,6 @@ export function SettingsPage() {
     fetchVersion()
   }, [])
 
-  // Check rate limit for log submission
-  useEffect(() => {
-    const checkRateLimit = async () => {
-      // @ts-ignore - Tauri API
-      if (window.__TAURI__) {
-        try {
-          const { invoke } = await import('@tauri-apps/api/tauri')
-          const timestamp = await invoke<number | null>('get_last_log_submission')
-
-          if (timestamp) {
-            const lastTime = new Date(timestamp * 1000)
-            const now = new Date()
-            const hoursSince = (now.getTime() - lastTime.getTime()) / (1000 * 60 * 60)
-
-            // Rate limit disabled during development (set to 0)
-            const RATE_LIMIT_HOURS = 0
-            if (hoursSince < RATE_LIMIT_HOURS) {
-              setCanSubmitLogs(false)
-              const minutesRemaining = Math.ceil((RATE_LIMIT_HOURS * 60) - (hoursSince * 60))
-              setMinutesUntilCanSubmit(minutesRemaining)
-            } else {
-              setCanSubmitLogs(true)
-            }
-          }
-        } catch (err) {
-          console.error('Failed to check rate limit:', err)
-        }
-      }
-    }
-    checkRateLimit()
-
-    // Update countdown every minute
-    const interval = setInterval(checkRateLimit, 60000)
-    return () => clearInterval(interval)
-  }, [])
-
   // Handle log submission
   const handleSubmitLogs = async () => {
     if (!logDescription.trim()) {
@@ -356,9 +316,6 @@ export function SettingsPage() {
         if (result.success && result.issue_url) {
           setLogSubmissionResult({ success: true, issueUrl: result.issue_url })
           setLogDescription('')
-          // Rate limit disabled during development
-          setCanSubmitLogs(true)
-          setMinutesUntilCanSubmit(0)
           addLog('success', '✅ Logs submitted successfully')
         } else {
           setLogSubmissionResult({ error: result.error || 'Failed to submit logs' })
@@ -1483,16 +1440,6 @@ export function SettingsPage() {
                   Sensitive information (API keys, emails, phone numbers) will be automatically removed.
                 </p>
 
-                {/* Rate Limit Notice */}
-                {!canSubmitLogs && (
-                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                    <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-sm">
-                      <Clock className="w-4 h-4" />
-                      <span>You can submit logs again in {minutesUntilCanSubmit} minutes</span>
-                    </div>
-                  </div>
-                )}
-
                 {/* Success Message */}
                 {logSubmissionResult?.success && (
                   <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
@@ -1534,7 +1481,7 @@ export function SettingsPage() {
                     onChange={(e) => setLogDescription(e.target.value)}
                     placeholder="What were you doing when the problem occurred? What did you expect to happen?"
                     rows={3}
-                    disabled={!canSubmitLogs || isSubmittingLogs}
+                    disabled={isSubmittingLogs}
                     className="w-full px-4 py-2.5 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50 resize-none"
                   />
                 </div>
@@ -1542,7 +1489,7 @@ export function SettingsPage() {
                 {/* Submit Button */}
                 <button
                   onClick={handleSubmitLogs}
-                  disabled={!canSubmitLogs || isSubmittingLogs || !logDescription.trim()}
+                  disabled={isSubmittingLogs || !logDescription.trim()}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSubmittingLogs ? (
@@ -1562,21 +1509,6 @@ export function SettingsPage() {
                   Note: Most recent log file will be included with your submission.
                 </p>
               </div>
-            </div>
-
-            {/* Support */}
-            <div className="p-6 rounded-xl border border-border bg-card/50">
-              <h4 className="text-lg font-semibold text-foreground mb-4">Support</h4>
-              <a
-                href="mailto:support@inboxhunter.com"
-                className="flex items-center gap-3 p-4 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
-              >
-                <Mail className="w-5 h-5 text-muted-foreground" />
-                <div>
-                  <div className="font-medium text-foreground">Email Support</div>
-                  <div className="text-sm text-muted-foreground">support@inboxhunter.com</div>
-                </div>
-              </a>
             </div>
 
             {/* Copyright */}
