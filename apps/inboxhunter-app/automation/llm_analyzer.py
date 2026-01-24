@@ -972,9 +972,22 @@ Examples:
                     response_text = await response.text()
                     
                     if response.status == 429:
-                        logger.warning("OpenAI rate limit hit")
-                        raise Exception(f"rate_limit_exceeded: {response_text}")
-                    
+                        # Distinguish between quota exceeded (billing) vs temporary rate limit
+                        if "exceeded your current quota" in response_text or "billing" in response_text.lower():
+                            logger.error("OpenAI quota exceeded - billing issue")
+                            raise Exception(f"quota_exceeded: Your OpenAI API quota is exceeded. Please add credits at https://platform.openai.com/account/billing")
+                        else:
+                            logger.warning("OpenAI rate limit hit (temporary)")
+                            raise Exception(f"rate_limit_exceeded: {response_text}")
+
+                    if response.status == 401:
+                        logger.error("OpenAI API key invalid")
+                        raise Exception(f"invalid_api_key: Your OpenAI API key is invalid or expired. Please check your API key in Settings.")
+
+                    if response.status == 403:
+                        logger.error("OpenAI API access denied")
+                        raise Exception(f"api_access_denied: Access denied. Your API key may not have access to this model or region.")
+
                     if response.status != 200:
                         logger.error(f"OpenAI API error ({response.status}): {response_text[:200]}")
                         raise Exception(f"OpenAI error ({response.status}): {response_text[:200]}")
@@ -1253,6 +1266,11 @@ If no signup form found:
             return result
 
         except Exception as e:
+            error_str = str(e).lower()
+            # Re-raise fatal API errors so they stop the entire run
+            if any(fatal in error_str for fatal in ["quota_exceeded", "invalid_api_key", "api_access_denied"]):
+                logger.error(f"Fatal API error in batch planning: {e}")
+                raise
             logger.error(f"Batch planning failed: {e}")
             return {"plan_type": "batch", "actions": [], "error": str(e)}
 

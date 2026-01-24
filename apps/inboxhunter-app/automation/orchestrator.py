@@ -292,8 +292,49 @@ class InboxHunterBot:
                 # No delay between URLs - move immediately to next
 
         except Exception as e:
-            logger.error(f"❌ Fatal error: {e}")
-            raise
+            error_str = str(e).lower()
+
+            # Handle fatal API errors gracefully with user-friendly messages
+            if "quota_exceeded" in error_str:
+                logger.error("")
+                logger.error("=" * 60)
+                logger.error("🚨 OPENAI QUOTA EXCEEDED")
+                logger.error("=" * 60)
+                logger.error("Your OpenAI API quota has been exceeded.")
+                logger.error("The bot cannot continue until you add credits.")
+                logger.error("")
+                logger.error("To fix this:")
+                logger.error("1. Go to: https://platform.openai.com/account/billing")
+                logger.error("2. Add credits to your account")
+                logger.error("3. Run InboxHunter again")
+                logger.error("=" * 60)
+            elif "invalid_api_key" in error_str:
+                logger.error("")
+                logger.error("=" * 60)
+                logger.error("🚨 INVALID OPENAI API KEY")
+                logger.error("=" * 60)
+                logger.error("Your OpenAI API key is invalid or has expired.")
+                logger.error("")
+                logger.error("To fix this:")
+                logger.error("1. Go to Settings in InboxHunter")
+                logger.error("2. Enter a valid OpenAI API key")
+                logger.error("3. Run InboxHunter again")
+                logger.error("=" * 60)
+            elif "api_access_denied" in error_str:
+                logger.error("")
+                logger.error("=" * 60)
+                logger.error("🚨 OPENAI API ACCESS DENIED")
+                logger.error("=" * 60)
+                logger.error("Your OpenAI account doesn't have access to the required API.")
+                logger.error("")
+                logger.error("To fix this:")
+                logger.error("1. Check your OpenAI account permissions")
+                logger.error("2. Ensure your API key has access to GPT-4 Vision")
+                logger.error("3. Run InboxHunter again")
+                logger.error("=" * 60)
+            else:
+                logger.error(f"❌ Fatal error: {e}")
+                raise
         finally:
             # Always print summary, even on stop or error
             elapsed_time = time.time() - start_time
@@ -1397,14 +1438,41 @@ class InboxHunterBot:
                 return False
                 
         except Exception as e:
+            error_str = str(e).lower()
+
+            # Check for fatal API errors that should stop the entire run
+            if "quota_exceeded" in error_str:
+                logger.error("🚨 Fatal: OpenAI quota exceeded - stopping entire run")
+                self._record_result(url, source, "failed", [],
+                                   error_message="OpenAI quota exceeded - add credits at platform.openai.com/account/billing",
+                                   error_category="api_quota_exceeded",
+                                   details="Fatal error: OpenAI billing quota exceeded")
+                raise  # Re-raise to stop the entire run
+
+            if "invalid_api_key" in error_str:
+                logger.error("🚨 Fatal: Invalid OpenAI API key - stopping entire run")
+                self._record_result(url, source, "failed", [],
+                                   error_message="Invalid OpenAI API key - check Settings",
+                                   error_category="api_key_invalid",
+                                   details="Fatal error: OpenAI API key is invalid")
+                raise  # Re-raise to stop the entire run
+
+            if "api_access_denied" in error_str:
+                logger.error("🚨 Fatal: OpenAI API access denied - stopping entire run")
+                self._record_result(url, source, "failed", [],
+                                   error_message="OpenAI API access denied - check account permissions",
+                                   error_category="api_access_denied",
+                                   details="Fatal error: OpenAI API access denied")
+                raise  # Re-raise to stop the entire run
+
             # Check if exception was due to stop request
             if self._stop_check():
                 slog.detail("⏹ Processing interrupted by stop request - leaving URL in pending state")
                 self.stats["total_attempts"] -= 1  # Don't count this as an attempt
                 return None  # Don't mark as failed - leave in pending state
-            
+
             logger.error(f"Error processing URL: {e}", exc_info=True)
-            self._record_result(url, source, "failed", [], 
+            self._record_result(url, source, "failed", [],
                                error_message=f"Exception: {str(e)[:150]}",
                                error_category="exception",
                                details=f"Exception type: {type(e).__name__}")

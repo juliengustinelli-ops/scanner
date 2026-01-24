@@ -377,8 +377,14 @@ class AIAgentOrchestrator:
         # Check LLM failure first - this is a critical error
         if llm_failure:
             primary_category = "llm_error"
-            # Make LLM errors more user-friendly
-            if "rate_limit" in llm_failure.lower():
+            # Make LLM errors more user-friendly with actionable messages
+            if "quota_exceeded" in llm_failure.lower():
+                primary_error = "🚨 OpenAI quota exceeded - add credits at platform.openai.com/account/billing"
+            elif "invalid_api_key" in llm_failure.lower():
+                primary_error = "🚨 Invalid OpenAI API key - check your API key in Settings"
+            elif "api_access_denied" in llm_failure.lower():
+                primary_error = "🚨 OpenAI access denied - check your account permissions"
+            elif "rate_limit" in llm_failure.lower():
                 primary_error = "OpenAI rate limit reached - please wait a moment and try again"
             elif "api key" in llm_failure.lower():
                 primary_error = "OpenAI API key error - please check your API key in Settings"
@@ -2227,13 +2233,31 @@ class AIAgentOrchestrator:
                     
                 except Exception as e:
                     error_msg = str(e)
+
+                    # Fatal errors - stop immediately, no retries
+                    if "quota_exceeded" in error_msg.lower():
+                        logger.error("🚨 OpenAI quota exceeded - stopping run")
+                        slog.url_failed("OpenAI quota exceeded - please add credits at platform.openai.com/account/billing")
+                        raise Exception("quota_exceeded: Your OpenAI API quota is exceeded. Please add credits to continue using InboxHunter.")
+
+                    if "invalid_api_key" in error_msg.lower():
+                        logger.error("🚨 Invalid OpenAI API key - stopping run")
+                        slog.url_failed("Invalid API key - please check your API key in Settings")
+                        raise Exception("invalid_api_key: Your OpenAI API key is invalid. Please check Settings.")
+
+                    if "api_access_denied" in error_msg.lower():
+                        logger.error("🚨 OpenAI API access denied - stopping run")
+                        slog.url_failed("API access denied - check your OpenAI account permissions")
+                        raise Exception("api_access_denied: Access denied to OpenAI API. Please check your account.")
+
+                    # Temporary rate limit - can retry
                     if "rate_limit" in error_msg.lower():
                         retry_count += 1
                         self.consecutive_rate_limits += 1
-                        
+
                         if retry_count > max_retries:
                             raise Exception("Rate limit exceeded after retries")
-                        
+
                         # Parse wait time or use progressive backoff
                         wait_time = 10 * retry_count
                         if "Please try again in" in error_msg:
@@ -2241,7 +2265,7 @@ class AIAgentOrchestrator:
                             if match:
                                 val = float(match.group(1))
                                 wait_time = (val * 60 if match.group(2) == 'm' else val) + 2
-                        
+
                         logger.warning(f"⏳ Rate limit (retry {retry_count}/{max_retries}), waiting {wait_time:.0f}s...")
                         await asyncio.sleep(wait_time)
                         continue
