@@ -387,8 +387,10 @@ jobs:
           ls -la
           echo ""
           echo "Checking ${{ matrix.python_sidecar }}:"
-          file "${{ matrix.python_sidecar }}"
-          ARCH=$(file "${{ matrix.python_sidecar }}" | grep -o 'arm64\|x86_64')
+          FILE_OUTPUT=$(file "${{ matrix.python_sidecar }}")
+          echo "$FILE_OUTPUT"
+          # Extract architecture from after the colon (avoids matching filename)
+          ARCH=$(echo "$FILE_OUTPUT" | cut -d: -f2 | grep -o 'arm64\|x86_64' | head -1)
           echo "Detected architecture: $ARCH"
           if [[ "$ARCH" != "x86_64" ]]; then
             echo "::error::Expected x86_64 architecture but got: $ARCH"
