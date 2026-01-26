@@ -99,6 +99,9 @@ jobs:
           architecture: 'x64'
 
       - name: Install uv (fast Python package manager)
+        # Skip uv for Intel Mac build - uv installs ARM64 packages on ARM64 hosts
+        # even when Python is x64, causing architecture mismatch in the sidecar
+        if: matrix.rust_target != 'x86_64-apple-darwin'
         uses: astral-sh/setup-uv@v4
         with:
           version: "latest"
@@ -126,8 +129,9 @@ jobs:
             libgtk-3-dev \
             libjavascriptcoregtk-4.0-dev
 
-      # Cache uv packages
+      # Cache uv packages (skip for Intel Mac which uses pip)
       - name: Cache uv packages
+        if: matrix.rust_target != 'x86_64-apple-darwin'
         uses: actions/cache@v4
         with:
           path: |
@@ -138,11 +142,33 @@ jobs:
           restore-keys: |
             uv-${{ runner.os }}-
 
+      # Cache pip packages for Intel Mac build
+      - name: Cache pip packages (Intel Mac)
+        if: matrix.rust_target == 'x86_64-apple-darwin'
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/pip
+          key: pip-macos-x64-${{ hashFiles('apps/inboxhunter-app/automation/requirements.txt') }}
+          restore-keys: |
+            pip-macos-x64-
+
       - name: Install Python dependencies (using uv - 10x faster than pip)
+        if: matrix.rust_target != 'x86_64-apple-darwin'
         working-directory: apps/inboxhunter-app/automation
         run: |
           uv pip install --system -r requirements.txt
           uv pip install --system pyinstaller
+
+      # Use pip for Intel Mac to ensure x64 packages are installed
+      - name: Install Python dependencies (Intel Mac - using pip for x64 compatibility)
+        if: matrix.rust_target == 'x86_64-apple-darwin'
+        working-directory: apps/inboxhunter-app/automation
+        run: |
+          echo "=== Using pip instead of uv for Intel Mac build ==="
+          echo "This ensures native packages are compiled for x86_64, not ARM64"
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
 
       - name: Get Playwright version
         id: playwright-version
@@ -313,6 +339,39 @@ jobs:
           cp "dist/${{ matrix.python_sidecar }}" ../src-tauri/binaries/
           chmod +x "../src-tauri/binaries/${{ matrix.python_sidecar }}"
 
+      - name: Verify sidecar architecture (macOS Apple Silicon)
+        if: matrix.platform == 'macos-latest'
+        working-directory: apps/inboxhunter-app/src-tauri/binaries
+        run: |
+          echo "=== Verifying Apple Silicon sidecar architecture ==="
+          file "${{ matrix.python_sidecar }}"
+          ARCH=$(file "${{ matrix.python_sidecar }}" | grep -o 'arm64\|x86_64')
+          echo "Detected architecture: $ARCH"
+          if [[ "$ARCH" != "arm64" ]]; then
+            echo "::error::Expected arm64 architecture but got: $ARCH"
+            exit 1
+          fi
+          echo "✓ Architecture verified: arm64 (Apple Silicon)"
+
+      - name: Verify Python architecture (macOS Intel build)
+        if: matrix.platform == 'macos-14' && matrix.rust_target == 'x86_64-apple-darwin'
+        run: |
+          echo "=== Verifying Python x86_64 setup for Intel Mac build ==="
+          echo "Python path: $(which python)"
+          echo "Python version: $(python --version)"
+          echo "Python architecture:"
+          python -c "import platform; print(f'  machine: {platform.machine()}'); print(f'  processor: {platform.processor()}'); import struct; print(f'  pointer size: {struct.calcsize(\"P\") * 8}-bit')"
+
+          # Verify we're running x86_64 Python (via Rosetta)
+          PYTHON_ARCH=$(python -c "import platform; print(platform.machine())")
+          echo "Detected Python arch: $PYTHON_ARCH"
+          if [[ "$PYTHON_ARCH" != "x86_64" ]]; then
+            echo "::error::Expected x86_64 Python but got: $PYTHON_ARCH"
+            echo "The Intel Mac build requires x86_64 Python to produce compatible binaries."
+            exit 1
+          fi
+          echo "✓ Python architecture verified: x86_64"
+
       - name: Build Python sidecar (macOS Intel via Rosetta)
         if: matrix.platform == 'macos-14' && matrix.rust_target == 'x86_64-apple-darwin'
         working-directory: apps/inboxhunter-app/automation
@@ -363,6 +422,29 @@ jobs:
           # tauri-build checks for sidecar using host arch, even when cross-compiling
           cp "dist/${{ matrix.python_sidecar }}" ../src-tauri/binaries/inboxhunter-automation-aarch64-apple-darwin
           chmod +x "../src-tauri/binaries/inboxhunter-automation-aarch64-apple-darwin"
+
+      - name: Verify sidecar architecture (macOS Intel)
+        if: matrix.platform == 'macos-14' && matrix.rust_target == 'x86_64-apple-darwin'
+        working-directory: apps/inboxhunter-app/src-tauri/binaries
+        run: |
+          echo "=== Verifying Intel Mac sidecar architecture ==="
+          echo "All binaries in directory:"
+          ls -la
+          echo ""
+          echo "Checking ${{ matrix.python_sidecar }}:"
+          file "${{ matrix.python_sidecar }}"
+          ARCH=$(file "${{ matrix.python_sidecar }}" | grep -o 'arm64\|x86_64')
+          echo "Detected architecture: $ARCH"
+          if [[ "$ARCH" != "x86_64" ]]; then
+            echo "::error::Expected x86_64 architecture but got: $ARCH"
+            echo "This will cause 'Bad CPU type in executable' errors on Intel Macs!"
+            exit 1
+          fi
+          echo "✓ Architecture verified: x86_64 (Intel)"
+
+          echo ""
+          echo "Checking validation copy (aarch64 name):"
+          file "inboxhunter-automation-aarch64-apple-darwin"
 
       - name: Install npm dependencies
         working-directory: apps/inboxhunter-app
