@@ -1,9 +1,11 @@
 {
   "name": "inboxhunter-app",
-  "version": "1.2.34",
+  "version": "1.2.35",
   "description": "AI-powered lead generation and automation platform",
   "type": "module",
   "scripts": {
+    "version:sync": "node scripts/sync-version.cjs",
+    "version:set": "node scripts/sync-version.cjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",

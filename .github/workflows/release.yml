@@ -68,7 +68,7 @@ jobs:
           - platform: macos-latest
             rust_target: aarch64-apple-darwin
             python_sidecar: inboxhunter-automation-aarch64-apple-darwin
-          - platform: macos-14
+          - platform: macos-13
             rust_target: x86_64-apple-darwin
             python_sidecar: inboxhunter-automation-x86_64-apple-darwin
 
@@ -85,23 +85,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: apps/inboxhunter-app/package-lock.json
 
-      - name: Setup Python (native)
-        if: matrix.rust_target != 'x86_64-apple-darwin' || matrix.platform != 'macos-14'
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Setup Python (x86_64 via Rosetta for Intel Mac build)
-        if: matrix.rust_target == 'x86_64-apple-darwin' && matrix.platform == 'macos-14'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          architecture: 'x64'
 
       - name: Install uv (fast Python package manager)
-        # Skip uv for Intel Mac build - uv installs ARM64 packages on ARM64 hosts
-        # even when Python is x64, causing architecture mismatch in the sidecar
-        if: matrix.rust_target != 'x86_64-apple-darwin'
         uses: astral-sh/setup-uv@v4
         with:
           version: "latest"
@@ -129,9 +118,8 @@ jobs:
             libgtk-3-dev \
             libjavascriptcoregtk-4.0-dev
 
-      # Cache uv packages (skip for Intel Mac which uses pip)
+      # Cache uv packages
       - name: Cache uv packages
-        if: matrix.rust_target != 'x86_64-apple-darwin'
         uses: actions/cache@v4
         with:
           path: |
@@ -142,33 +130,11 @@ jobs:
           restore-keys: |
             uv-${{ runner.os }}-
 
-      # Cache pip packages for Intel Mac build
-      - name: Cache pip packages (Intel Mac)
-        if: matrix.rust_target == 'x86_64-apple-darwin'
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/pip
-          key: pip-macos-x64-${{ hashFiles('apps/inboxhunter-app/automation/requirements.txt') }}
-          restore-keys: |
-            pip-macos-x64-
-
       - name: Install Python dependencies (using uv - 10x faster than pip)
-        if: matrix.rust_target != 'x86_64-apple-darwin'
         working-directory: apps/inboxhunter-app/automation
         run: |
           uv pip install --system -r requirements.txt
           uv pip install --system pyinstaller
-
-      # Use pip for Intel Mac to ensure x64 packages are installed
-      - name: Install Python dependencies (Intel Mac - using pip for x64 compatibility)
-        if: matrix.rust_target == 'x86_64-apple-darwin'
-        working-directory: apps/inboxhunter-app/automation
-        run: |
-          echo "=== Using pip instead of uv for Intel Mac build ==="
-          echo "This ensures native packages are compiled for x86_64, not ARM64"
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
 
       - name: Get Playwright version
         id: playwright-version
@@ -353,41 +319,26 @@ jobs:
           fi
           echo "✓ Architecture verified: arm64 (Apple Silicon)"
 
-      - name: Verify Python architecture (macOS Intel build)
-        if: matrix.platform == 'macos-14' && matrix.rust_target == 'x86_64-apple-darwin'
+      - name: Verify Python architecture (macOS Intel)
+        if: matrix.platform == 'macos-13'
         run: |
-          echo "=== Verifying Python x86_64 setup for Intel Mac build ==="
-          PYTHON_PATH=$(which python)
-          echo "Python path: $PYTHON_PATH"
+          echo "=== Verifying native Intel Mac Python ==="
+          echo "Python path: $(which python)"
           echo "Python version: $(python --version)"
-
-          # Check actual binary architecture using 'file' command
-          echo "Binary architecture:"
-          file "$PYTHON_PATH"
-
-          # Use sysconfig to get the platform tag (more reliable than platform.machine())
           PLATFORM_TAG=$(python -c "import sysconfig; print(sysconfig.get_platform())")
           echo "Platform tag: $PLATFORM_TAG"
-
-          # Verify the platform tag contains x86_64
           if [[ "$PLATFORM_TAG" == *"x86_64"* ]]; then
-            echo "✓ Python architecture verified: x86_64"
-          elif [[ "$PLATFORM_TAG" == *"arm64"* ]] || [[ "$PLATFORM_TAG" == *"aarch64"* ]]; then
-            echo "::error::Python platform is ARM64 ($PLATFORM_TAG), but x86_64 is required for Intel Mac build"
-            echo "The setup-python action may not support x64 on ARM64 runners."
-            exit 1
+            echo "✓ Python architecture verified: x86_64 (native Intel)"
           else
-            echo "::warning::Unknown platform tag: $PLATFORM_TAG - proceeding anyway"
+            echo "::error::Expected x86_64 Python on Intel Mac runner but got: $PLATFORM_TAG"
+            exit 1
           fi
 
-      - name: Build Python sidecar (macOS Intel via Rosetta)
-        if: matrix.platform == 'macos-14' && matrix.rust_target == 'x86_64-apple-darwin'
+      - name: Build Python sidecar (macOS Intel)
+        if: matrix.platform == 'macos-13' && matrix.rust_target == 'x86_64-apple-darwin'
         working-directory: apps/inboxhunter-app/automation
         run: |
-          # Python is already x86_64 via setup-python architecture parameter
-          # Use --add-data to explicitly include local Python modules
-          # --hidden-import only works for installed packages, not local .py files
-          # Use absolute paths because PyInstaller resolves relative to specpath
+          # Native Intel Mac build - no Rosetta needed
           AUTOMATION_DIR="$(pwd)"
           python -m PyInstaller \
             --onefile \
@@ -426,13 +377,8 @@ jobs:
           cp "dist/${{ matrix.python_sidecar }}" ../src-tauri/binaries/
           chmod +x "../src-tauri/binaries/${{ matrix.python_sidecar }}"
 
-          # Also create a copy with the host architecture name for tauri-build validation
-          # tauri-build checks for sidecar using host arch, even when cross-compiling
-          cp "dist/${{ matrix.python_sidecar }}" ../src-tauri/binaries/inboxhunter-automation-aarch64-apple-darwin
-          chmod +x "../src-tauri/binaries/inboxhunter-automation-aarch64-apple-darwin"
-
       - name: Verify sidecar architecture (macOS Intel)
-        if: matrix.platform == 'macos-14' && matrix.rust_target == 'x86_64-apple-darwin'
+        if: matrix.platform == 'macos-13' && matrix.rust_target == 'x86_64-apple-darwin'
         working-directory: apps/inboxhunter-app/src-tauri/binaries
         run: |
           echo "=== Verifying Intel Mac sidecar architecture ==="

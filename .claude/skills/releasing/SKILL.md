@@ -14,10 +14,21 @@ Handles the complete release workflow for InboxHunter desktop app.
    - **Minor** (1.2.11 → 1.3.0): New features, backwards compatible
    - **Major** (1.3.0 → 2.0.0): Breaking changes
 
-2. **Update version in ALL THREE files** (they must match):
-   - `apps/inboxhunter-app/package.json` - `"version": "X.Y.Z"`
-   - `apps/inboxhunter-app/src-tauri/tauri.conf.json` - `"version": "X.Y.Z"`
-   - `apps/inboxhunter-app/src-tauri/Cargo.toml` - `version = "X.Y.Z"`
+2. **Update the version using the sync script** (updates all 3 files automatically):
+   ```bash
+   cd apps/inboxhunter-app
+   npm run version:set X.Y.Z
+   ```
+
+   This updates:
+   - `apps/inboxhunter-app/package.json` (source of truth)
+   - `apps/inboxhunter-app/src-tauri/tauri.conf.json`
+   - `apps/inboxhunter-app/src-tauri/Cargo.toml`
+
+   Alternatively, to sync from existing package.json version:
+   ```bash
+   npm run version:sync
+   ```
 
 3. **Stage and commit all changes**:
    ```bash
@@ -34,6 +45,14 @@ Handles the complete release workflow for InboxHunter desktop app.
    ```bash
    git push origin main --tags
    ```
+
+## Version Management
+
+The version is centralized in `apps/inboxhunter-app/package.json`. The sync script (`scripts/sync-version.js`) propagates the version to:
+- `src-tauri/tauri.conf.json` - Tauri app configuration
+- `src-tauri/Cargo.toml` - Rust/Tauri backend
+
+**Never manually edit version numbers in tauri.conf.json or Cargo.toml** - always use the sync script to ensure consistency.
 
 ## What Happens After Push
 
@@ -55,7 +74,7 @@ To find the current version before bumping:
 git tag -l "v*" | sort -V | tail -1
 ```
 
-Or check any of the three config files.
+Or check `apps/inboxhunter-app/package.json` (the source of truth).
 
 ## Troubleshooting
 
@@ -71,7 +90,7 @@ git push --delete origin vX.Y.Z
 ```
 
 ### Version mismatch
-All three config files must have the same version. Always update all three.
+Run `npm run version:sync` in the inboxhunter-app directory to sync all files from package.json.
 
 ## Guidelines
 
@@ -80,3 +99,4 @@ All three config files must have the same version. Always update all three.
 - Include the Co-Authored-By line in commits
 - Never force push to main
 - Wait for CI/CD to complete before announcing the release
+- Always use the version sync script instead of manually editing version files
