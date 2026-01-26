@@ -322,15 +322,16 @@ jobs:
       - name: Verify Python architecture (macOS Intel)
         if: matrix.platform == 'macos-15-intel'
         run: |
-          echo "=== Verifying native Intel Mac Python ==="
+          echo "=== Verifying Intel Mac Python ==="
           echo "Python path: $(which python)"
           echo "Python version: $(python --version)"
           PLATFORM_TAG=$(python -c "import sysconfig; print(sysconfig.get_platform())")
           echo "Platform tag: $PLATFORM_TAG"
-          if [[ "$PLATFORM_TAG" == *"x86_64"* ]]; then
-            echo "✓ Python architecture verified: x86_64 (native Intel)"
+          # Accept x86_64 or universal2 (universal2 supports both x86_64 and arm64)
+          if [[ "$PLATFORM_TAG" == *"x86_64"* ]] || [[ "$PLATFORM_TAG" == *"universal2"* ]]; then
+            echo "✓ Python architecture verified: $PLATFORM_TAG (compatible with Intel)"
           else
-            echo "::error::Expected x86_64 Python on Intel Mac runner but got: $PLATFORM_TAG"
+            echo "::error::Expected x86_64 or universal2 Python but got: $PLATFORM_TAG"
             exit 1
           fi
 
