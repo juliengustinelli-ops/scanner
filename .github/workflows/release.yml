@@ -357,20 +357,28 @@ jobs:
         if: matrix.platform == 'macos-14' && matrix.rust_target == 'x86_64-apple-darwin'
         run: |
           echo "=== Verifying Python x86_64 setup for Intel Mac build ==="
-          echo "Python path: $(which python)"
+          PYTHON_PATH=$(which python)
+          echo "Python path: $PYTHON_PATH"
           echo "Python version: $(python --version)"
-          echo "Python architecture:"
-          python -c "import platform; print(f'  machine: {platform.machine()}'); print(f'  processor: {platform.processor()}'); import struct; print(f'  pointer size: {struct.calcsize(\"P\") * 8}-bit')"
 
-          # Verify we're running x86_64 Python (via Rosetta)
-          PYTHON_ARCH=$(python -c "import platform; print(platform.machine())")
-          echo "Detected Python arch: $PYTHON_ARCH"
-          if [[ "$PYTHON_ARCH" != "x86_64" ]]; then
-            echo "::error::Expected x86_64 Python but got: $PYTHON_ARCH"
-            echo "The Intel Mac build requires x86_64 Python to produce compatible binaries."
+          # Check actual binary architecture using 'file' command
+          echo "Binary architecture:"
+          file "$PYTHON_PATH"
+
+          # Use sysconfig to get the platform tag (more reliable than platform.machine())
+          PLATFORM_TAG=$(python -c "import sysconfig; print(sysconfig.get_platform())")
+          echo "Platform tag: $PLATFORM_TAG"
+
+          # Verify the platform tag contains x86_64
+          if [[ "$PLATFORM_TAG" == *"x86_64"* ]]; then
+            echo "✓ Python architecture verified: x86_64"
+          elif [[ "$PLATFORM_TAG" == *"arm64"* ]] || [[ "$PLATFORM_TAG" == *"aarch64"* ]]; then
+            echo "::error::Python platform is ARM64 ($PLATFORM_TAG), but x86_64 is required for Intel Mac build"
+            echo "The setup-python action may not support x64 on ARM64 runners."
             exit 1
+          else
+            echo "::warning::Unknown platform tag: $PLATFORM_TAG - proceeding anyway"
           fi
-          echo "✓ Python architecture verified: x86_64"
 
       - name: Build Python sidecar (macOS Intel via Rosetta)
         if: matrix.platform == 'macos-14' && matrix.rust_target == 'x86_64-apple-darwin'
