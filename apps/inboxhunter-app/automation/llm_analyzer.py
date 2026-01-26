@@ -973,8 +973,16 @@ Examples:
                     
                     if response.status == 429:
                         # Distinguish between quota exceeded (billing) vs temporary rate limit
-                        if "exceeded your current quota" in response_text or "billing" in response_text.lower():
-                            logger.error("OpenAI quota exceeded - billing issue")
+                        # Check for multiple indicators: error code, message text, or billing reference
+                        response_lower = response_text.lower()
+                        is_quota_error = (
+                            "insufficient_quota" in response_lower or
+                            "exceeded your current quota" in response_lower or
+                            '"code": "insufficient_quota"' in response_lower or
+                            ("billing" in response_lower and "quota" in response_lower)
+                        )
+                        if is_quota_error:
+                            logger.error("OpenAI quota exceeded - billing issue (insufficient_quota)")
                             raise Exception(f"quota_exceeded: Your OpenAI API quota is exceeded. Please add credits at https://platform.openai.com/account/billing")
                         else:
                             logger.warning("OpenAI rate limit hit (temporary)")
