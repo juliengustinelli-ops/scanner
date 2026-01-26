@@ -68,7 +68,7 @@ jobs:
           - platform: macos-latest
             rust_target: aarch64-apple-darwin
             python_sidecar: inboxhunter-automation-aarch64-apple-darwin
-          - platform: macos-13
+          - platform: macos-15-intel
             rust_target: x86_64-apple-darwin
             python_sidecar: inboxhunter-automation-x86_64-apple-darwin
 
@@ -320,7 +320,7 @@ jobs:
           echo "✓ Architecture verified: arm64 (Apple Silicon)"
 
       - name: Verify Python architecture (macOS Intel)
-        if: matrix.platform == 'macos-13'
+        if: matrix.platform == 'macos-15-intel'
         run: |
           echo "=== Verifying native Intel Mac Python ==="
           echo "Python path: $(which python)"
@@ -335,7 +335,7 @@ jobs:
           fi
 
       - name: Build Python sidecar (macOS Intel)
-        if: matrix.platform == 'macos-13' && matrix.rust_target == 'x86_64-apple-darwin'
+        if: matrix.platform == 'macos-15-intel' && matrix.rust_target == 'x86_64-apple-darwin'
         working-directory: apps/inboxhunter-app/automation
         run: |
           # Native Intel Mac build - no Rosetta needed
@@ -378,7 +378,7 @@ jobs:
           chmod +x "../src-tauri/binaries/${{ matrix.python_sidecar }}"
 
       - name: Verify sidecar architecture (macOS Intel)
-        if: matrix.platform == 'macos-13' && matrix.rust_target == 'x86_64-apple-darwin'
+        if: matrix.platform == 'macos-15-intel' && matrix.rust_target == 'x86_64-apple-darwin'
         working-directory: apps/inboxhunter-app/src-tauri/binaries
         run: |
           echo "=== Verifying Intel Mac sidecar architecture ==="
