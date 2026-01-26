@@ -397,10 +397,6 @@ jobs:
           fi
           echo "✓ Architecture verified: x86_64 (Intel)"
 
-          echo ""
-          echo "Checking validation copy (aarch64 name):"
-          file "inboxhunter-automation-aarch64-apple-darwin"
-
       - name: Install npm dependencies
         working-directory: apps/inboxhunter-app
         run: npm ci
