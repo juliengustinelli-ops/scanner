@@ -571,6 +571,8 @@ export const useAppStore = create<AppState>()(
             // Ensure adLimit is within valid range
             if (state.settings.adLimit === undefined || state.settings.adLimit < 5) {
               state.settings.adLimit = 20
+            } else if (state.settings.adLimit > 1000000) {
+              state.settings.adLimit = 1000000
             }
             // Ensure llmModel exists
             if (!state.settings.llmModel) {

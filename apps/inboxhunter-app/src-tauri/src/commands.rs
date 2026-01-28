@@ -20,6 +20,7 @@ pub struct AppState {
     pub db_path: Mutex<String>,
     pub bot_running: Mutex<bool>,
     pub bot_process: Mutex<Option<Child>>,
+    pub bot_start_time: Mutex<Option<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -613,6 +614,12 @@ pub async fn start_bot(
     let stop_signal_path = data_dir.join("stop_signal.txt");
     let _ = std::fs::remove_file(&stop_signal_path);
 
+    // Record bot start time so quick stats only show current run
+    {
+        let mut start_time = state.bot_start_time.lock().map_err(|e| e.to_string())?;
+        *start_time = Some(chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string());
+    }
+
     let config_path = data_dir.join("bot_config.json");
     let config_json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
     std::fs::write(&config_path, &config_json).map_err(|e| e.to_string())?;
@@ -976,7 +983,8 @@ pub async fn get_processed_urls(
 #[command]
 pub async fn get_processed_stats(state: State<'_, AppState>) -> Result<ProcessedStats, String> {
     let db_path = state.db_path.lock().map_err(|e| e.to_string())?;
-    let stats = db::get_processed_stats(&db_path).map_err(|e| e.to_string())?;
+    let start_time = state.bot_start_time.lock().map_err(|e| e.to_string())?;
+    let stats = db::get_processed_stats(&db_path, start_time.as_deref()).map_err(|e| e.to_string())?;
     Ok(stats)
 }
 
@@ -1016,7 +1024,8 @@ pub async fn get_scraped_urls(
 #[command]
 pub async fn get_scraped_stats(state: State<'_, AppState>) -> Result<ScrapedStats, String> {
     let db_path = state.db_path.lock().map_err(|e| e.to_string())?;
-    let stats = db::get_scraped_stats(&db_path).map_err(|e| e.to_string())?;
+    let start_time = state.bot_start_time.lock().map_err(|e| e.to_string())?;
+    let stats = db::get_scraped_stats(&db_path, start_time.as_deref()).map_err(|e| e.to_string())?;
     Ok(stats)
 }
 

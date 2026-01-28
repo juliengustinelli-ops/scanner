@@ -25,6 +25,7 @@ fn main() {
                 db_path: std::sync::Mutex::new(db_path.to_string_lossy().to_string()),
                 bot_running: std::sync::Mutex::new(false),
                 bot_process: std::sync::Mutex::new(None),
+                bot_start_time: std::sync::Mutex::new(None),
             });
             
             println!("InboxHunter initialized. Data directory: {:?}", data_dir);

@@ -157,14 +157,20 @@ pub fn get_processed_urls(db_path: &str, limit: i32) -> Result<Vec<ProcessedURL>
     Ok(results)
 }
 
-pub fn get_processed_stats(db_path: &str) -> Result<ProcessedStats> {
+pub fn get_processed_stats(db_path: &str, since: Option<&str>) -> Result<ProcessedStats> {
     let conn = Connection::open(db_path)?;
-    
-    let total: i32 = conn.query_row("SELECT COUNT(*) FROM processed_urls", [], |row| row.get(0))?;
-    let successful: i32 = conn.query_row("SELECT COUNT(*) FROM processed_urls WHERE status = 'success'", [], |row| row.get(0))?;
-    let failed: i32 = conn.query_row("SELECT COUNT(*) FROM processed_urls WHERE status = 'failed'", [], |row| row.get(0))?;
-    let skipped: i32 = conn.query_row("SELECT COUNT(*) FROM processed_urls WHERE status = 'skipped'", [], |row| row.get(0))?;
-    
+
+    let time_filter = since.unwrap_or("1970-01-01 00:00:00");
+
+    let total: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM processed_urls WHERE processed_at >= ?", [time_filter], |row| row.get(0))?;
+    let successful: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM processed_urls WHERE status = 'success' AND processed_at >= ?", [time_filter], |row| row.get(0))?;
+    let failed: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM processed_urls WHERE status = 'failed' AND processed_at >= ?", [time_filter], |row| row.get(0))?;
+    let skipped: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM processed_urls WHERE status = 'skipped' AND processed_at >= ?", [time_filter], |row| row.get(0))?;
+
     Ok(ProcessedStats { total, successful, failed, skipped })
 }
 
@@ -266,13 +272,18 @@ pub fn get_scraped_urls(db_path: &str, limit: i32) -> Result<Vec<ScrapedURL>> {
     Ok(results)
 }
 
-pub fn get_scraped_stats(db_path: &str) -> Result<ScrapedStats> {
+pub fn get_scraped_stats(db_path: &str, since: Option<&str>) -> Result<ScrapedStats> {
     let conn = Connection::open(db_path)?;
-    
-    let total: i32 = conn.query_row("SELECT COUNT(*) FROM scraped_urls", [], |row| row.get(0))?;
-    let processed: i32 = conn.query_row("SELECT COUNT(*) FROM scraped_urls WHERE processed = 1", [], |row| row.get(0))?;
-    let pending: i32 = conn.query_row("SELECT COUNT(*) FROM scraped_urls WHERE processed = 0", [], |row| row.get(0))?;
-    
+
+    let time_filter = since.unwrap_or("1970-01-01 00:00:00");
+
+    let total: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM scraped_urls WHERE scraped_at >= ?", [time_filter], |row| row.get(0))?;
+    let processed: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM scraped_urls WHERE processed = 1 AND scraped_at >= ?", [time_filter], |row| row.get(0))?;
+    let pending: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM scraped_urls WHERE processed = 0 AND scraped_at >= ?", [time_filter], |row| row.get(0))?;
+
     Ok(ScrapedStats { total, processed, pending })
 }
 
@@ -343,9 +354,9 @@ pub fn is_url_processed(db_path: &str, url: &str) -> Result<bool> {
     Ok(count > 0)
 }
 
-// Legacy stats function - now returns processed stats
+// Legacy stats function - now returns processed stats (all time)
 pub fn get_stats(db_path: &str) -> Result<ProcessedStats> {
-    get_processed_stats(db_path)
+    get_processed_stats(db_path, None)
 }
 
 // ==================== API COST TRACKING ====================

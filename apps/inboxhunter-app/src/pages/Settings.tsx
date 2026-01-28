@@ -86,7 +86,7 @@ const validateKeywords = (keywords: string, isMetaSource: boolean): string | nul
 const validateAdLimit = (adLimit: number): string | null => {
   if (isNaN(adLimit)) return 'Please enter a valid number'
   if (adLimit < 5) return 'Must be at least 5'
-  if (adLimit > 100) return 'Must be at most 100'
+  if (adLimit > 1000000) return 'Must be at most 1,000,000'
   return null
 }
 
@@ -943,7 +943,7 @@ export function SettingsPage() {
                   <input
                     type="number"
                     min={5}
-                    max={100}
+                    max={1000000}
                     value={adLimitInput}
                     onChange={(e) => {
                       // Allow free typing - just update the string state
@@ -952,7 +952,7 @@ export function SettingsPage() {
                       
                       // Only update draft if it's a valid number
                       const numValue = parseInt(inputValue)
-                      if (!isNaN(numValue) && numValue >= 5 && numValue <= 100) {
+                      if (!isNaN(numValue) && numValue >= 5 && numValue <= 1000000) {
                         updateDraftSettings({ adLimit: numValue })
                       }
                     }}
@@ -967,9 +967,9 @@ export function SettingsPage() {
                         const clamped = 5
                         setAdLimitInput(clamped.toString())
                         updateDraftSettings({ adLimit: clamped })
-                      } else if (numValue > 100) {
+                      } else if (numValue > 1000000) {
                         // Too high - set to maximum
-                        const clamped = 100
+                        const clamped = 1000000
                         setAdLimitInput(clamped.toString())
                         updateDraftSettings({ adLimit: clamped })
                       } else {
@@ -977,11 +977,16 @@ export function SettingsPage() {
                         updateDraftSettings({ adLimit: numValue })
                       }
                     }}
-                    className={getInputClass('adLimit', 'w-32')}
+                    className={getInputClass('adLimit', 'w-48')}
                   />
                   {renderError('adLimit')}
+                  {adLimitInput && parseInt(adLimitInput) > 500000 && (
+                    <p className="mt-1 text-xs text-yellow-400">
+                      ⚠ Values over 500,000 may slow your machine or cause the application to not perform properly
+                    </p>
+                  )}
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Between 5 and 100 ads
+                    Between 5 and 1,000,000 ads
                   </p>
                 </div>
               </>
