@@ -3,7 +3,7 @@ Configuration models for InboxHunter Automation Engine.
 Uses Pydantic for validation and type safety.
 """
 
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, Union, List
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -42,9 +42,15 @@ class APIKeys(BaseModel):
     """API keys configuration."""
     openai: str = ""
     captcha: str = ""
-    
+
     class Config:
         populate_by_name = True
+
+
+class KeywordSuffix(BaseModel):
+    """Keyword suffix configuration."""
+    suffix: str = ""
+    enabled: bool = False
 
 
 class Settings(BaseModel):
@@ -52,6 +58,7 @@ class Settings(BaseModel):
     data_source: str = Field(default="meta", alias="dataSource")
     csv_path: str = Field(default="", alias="csvPath")
     meta_keywords: str = Field(default="marketing, funnel", alias="metaKeywords")
+    keyword_suffixes: List[KeywordSuffix] = Field(default_factory=list, alias="keywordSuffixes")  # Configurable suffixes
     ad_limit: int = Field(default=20, alias="adLimit")  # Default within valid range (5-100)
     max_signups: int = Field(default=30, alias="maxSignups")  # Default 30, range 1-100
     headless: bool = False

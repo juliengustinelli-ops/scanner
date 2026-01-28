@@ -7,7 +7,7 @@ Enhanced with:
 - Pagination support to navigate through multiple pages
 - Equal distribution of URLs across keywords
 - Target threshold (~80% of max) to ensure good coverage
-- Newsletter focus: Automatically appends "newsletter" to keywords
+- Configurable keyword suffixes (e.g., "newsletter", "signup") - user can enable/disable
 - Filters out e-commerce, blogs, product pages
 """
 
@@ -123,36 +123,38 @@ SKIP_URL_PATTERNS = [
 class MetaAdsScraper:
     """
     Scrapes ad landing pages from Meta Ads Library.
-    
+
     Features:
     - Stealth browser to avoid detection
     - Smart URL filtering to exclude invalid pages
     - Pagination to get more results
     - Equal distribution across keywords
     - Target threshold (~80% of max) for good coverage
-    - Newsletter focus: Appends "newsletter" to find signup pages
+    - Configurable keyword suffixes (user can enable/disable each)
     - Filters out e-commerce, blogs, and product pages
     """
-    
+
     # Target percentage of max_ads to aim for
     TARGET_PERCENTAGE = 0.80
-    
+
     # Maximum pages to navigate per keyword
     MAX_PAGES_PER_KEYWORD = 5
-    
+
     # Scroll iterations per page
     SCROLLS_PER_PAGE = 8
-    
-    # Newsletter suffix to append to keywords for better targeting
-    NEWSLETTER_SUFFIX = "newsletter"
-    
-    def __init__(self, keywords: List[str], max_ads: int = 100, headless: bool = False):
-        # Clean and enhance keywords with newsletter focus
+
+    def __init__(self, keywords: List[str], max_ads: int = 100, headless: bool = False, keyword_suffixes: List[Dict] = None):
+        # Clean keywords
         raw_keywords = [k.strip() for k in keywords if k.strip()]
-        
-        # Transform keywords to focus on newsletters
-        # e.g., "makeup" -> "makeup newsletter", "marketing" -> "marketing newsletter"
-        self.keywords = self._enhance_keywords_for_newsletters(raw_keywords)
+
+        # Store enabled suffixes from config (default to empty if not provided)
+        self.enabled_suffixes = []
+        if keyword_suffixes:
+            self.enabled_suffixes = [s.get('suffix', '') for s in keyword_suffixes if s.get('enabled', False)]
+
+        # Transform keywords using enabled suffixes
+        # e.g., with "newsletter" enabled: "makeup" -> "makeup newsletter"
+        self.keywords = self._enhance_keywords_with_suffixes(raw_keywords)
         self.original_keywords = raw_keywords  # Keep originals for reference
         
         self.max_ads = max_ads
@@ -164,34 +166,47 @@ class MetaAdsScraper:
         self.page: Optional[Page] = None
         self.seen_urls: Set[str] = set()  # Track URLs across all keywords
     
-    def _enhance_keywords_for_newsletters(self, keywords: List[str]) -> List[str]:
+    def _enhance_keywords_with_suffixes(self, keywords: List[str]) -> List[str]:
         """
-        Enhance keywords to focus on newsletter/signup pages.
-        
+        Enhance keywords with user-configured suffixes.
+
         Strategy:
-        1. Add "newsletter" suffix to each keyword
-        2. This helps find lead magnet and email list building ads
-        
-        Example:
+        1. For each enabled suffix, append it to keywords that don't already contain it
+        2. Only applies enabled suffixes from user configuration
+
+        Example with "newsletter" enabled:
         - "makeup" -> "makeup newsletter"
         - "marketing tips" -> "marketing tips newsletter"
+
+        If no suffixes are enabled, keywords are used as-is.
         """
+        # If no suffixes enabled, return keywords unchanged
+        if not self.enabled_suffixes:
+            logger.info("   📝 No keyword suffixes enabled - using keywords as-is")
+            return keywords
+
         enhanced = []
-        
+        suffix_str = ", ".join(self.enabled_suffixes)
+        logger.info(f"   📧 Enabled suffixes: {suffix_str}")
+
         for keyword in keywords:
             keyword_lower = keyword.lower()
-            
-            # Skip if keyword already contains newsletter-related terms
-            newsletter_terms = ["newsletter", "email list", "subscribe", "signup", "sign up", "opt-in", "optin"]
-            if any(term in keyword_lower for term in newsletter_terms):
+
+            # Check if keyword already contains any of the enabled suffixes
+            already_has_suffix = any(suffix.lower() in keyword_lower for suffix in self.enabled_suffixes)
+
+            if already_has_suffix:
                 enhanced.append(keyword)
-                logger.info(f"   📧 Keyword '{keyword}' already newsletter-focused")
+                logger.info(f"   📝 Keyword '{keyword}' already contains a suffix")
             else:
-                # Add newsletter suffix
-                enhanced_keyword = f"{keyword} {self.NEWSLETTER_SUFFIX}"
+                # Apply all enabled suffixes (join them)
+                # For simplicity, we add all enabled suffixes to the keyword
+                # e.g., with ["newsletter", "signup"] enabled: "makeup" -> "makeup newsletter signup"
+                suffix_combined = " ".join(self.enabled_suffixes)
+                enhanced_keyword = f"{keyword} {suffix_combined}"
                 enhanced.append(enhanced_keyword)
                 logger.info(f"   📧 Enhanced: '{keyword}' → '{enhanced_keyword}'")
-        
+
         return enhanced
     
     async def initialize(self):

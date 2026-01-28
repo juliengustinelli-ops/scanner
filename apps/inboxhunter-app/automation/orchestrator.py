@@ -357,11 +357,19 @@ class InboxHunterBot:
             slog.detail("📡 Scraping Meta Ads Library...")
             slog.detail(f"   Keywords: {self.config.settings.meta_keywords}")
             slog.detail(f"   Max ads to scrape: {self.config.settings.ad_limit}")
-            
+
+            # Get enabled keyword suffixes from config
+            keyword_suffixes = []
+            if hasattr(self.config.settings, 'keyword_suffixes') and self.config.settings.keyword_suffixes:
+                keyword_suffixes = [{"suffix": s.suffix, "enabled": s.enabled} for s in self.config.settings.keyword_suffixes]
+                enabled_count = sum(1 for s in keyword_suffixes if s.get('enabled'))
+                slog.detail(f"   Keyword suffixes: {enabled_count} enabled")
+
             scraper = MetaAdsScraper(
                 keywords=self.config.settings.meta_keywords.split(","),
                 max_ads=self.config.settings.ad_limit,
-                headless=self.config.settings.headless
+                headless=self.config.settings.headless,
+                keyword_suffixes=keyword_suffixes
             )
             await scraper.initialize()
             urls = await scraper.scrape()

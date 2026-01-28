@@ -20,7 +20,11 @@ import {
   Globe,
   FileText,
   Send,
-  ExternalLink
+  ExternalLink,
+  Plus,
+  X,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react'
 import { useAppStore } from '../hooks/useAppStore'
 import { motion } from 'framer-motion'
@@ -104,10 +108,16 @@ interface DraftAPIKeys {
   captcha: string
 }
 
+interface KeywordSuffix {
+  suffix: string
+  enabled: boolean
+}
+
 interface DraftSettings {
   dataSource: 'csv' | 'meta' | 'database'
   csvPath: string
   metaKeywords: string
+  keywordSuffixes: KeywordSuffix[]
   adLimit: number
   maxSignups: number
   headless: boolean
@@ -386,6 +396,9 @@ export function SettingsPage() {
   const [maxSignupsInput, setMaxSignupsInput] = useState<string>(draftSettings.maxSignups.toString())
   const [minDelayInput, setMinDelayInput] = useState<string>(draftSettings.minDelay.toString())
   const [maxDelayInput, setMaxDelayInput] = useState<string>(draftSettings.maxDelay.toString())
+
+  // New keyword suffix input
+  const [newSuffixInput, setNewSuffixInput] = useState<string>('')
   
   // Sync input states when draftSettings changes (from outside)
   useEffect(() => {
@@ -987,6 +1000,129 @@ export function SettingsPage() {
                   )}
                   <p className="mt-1 text-xs text-muted-foreground">
                     Between 5 and 1,000,000 ads
+                  </p>
+                </div>
+
+                {/* Keyword Suffixes */}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Keyword Suffixes <span className="text-muted-foreground text-xs">(Optional)</span>
+                  </label>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Suffixes are automatically appended to your keywords when searching. Enable a suffix to add it to all searches.
+                  </p>
+
+                  {/* Existing Suffixes */}
+                  <div className="space-y-2 mb-3">
+                    {draftSettings.keywordSuffixes.map((item, index) => (
+                      <div
+                        key={index}
+                        className={`flex items-center justify-between p-3 rounded-lg border ${
+                          item.enabled
+                            ? 'bg-purple-500/10 border-purple-500/30'
+                            : 'bg-muted/50 border-border'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => {
+                              const newSuffixes = [...draftSettings.keywordSuffixes]
+                              newSuffixes[index] = { ...newSuffixes[index], enabled: !newSuffixes[index].enabled }
+                              updateDraftSettings({ keywordSuffixes: newSuffixes })
+                            }}
+                            className={`p-1 rounded transition-colors ${
+                              item.enabled
+                                ? 'text-purple-500 hover:text-purple-400'
+                                : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                            title={item.enabled ? 'Disable suffix' : 'Enable suffix'}
+                          >
+                            {item.enabled ? (
+                              <ToggleRight className="w-6 h-6" />
+                            ) : (
+                              <ToggleLeft className="w-6 h-6" />
+                            )}
+                          </button>
+                          <span className={`font-medium ${item.enabled ? 'text-foreground' : 'text-muted-foreground'}`}>
+                            {item.suffix}
+                          </span>
+                          {item.enabled && (
+                            <span className="text-xs text-purple-400 bg-purple-500/20 px-2 py-0.5 rounded">
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => {
+                            const newSuffixes = draftSettings.keywordSuffixes.filter((_, i) => i !== index)
+                            updateDraftSettings({ keywordSuffixes: newSuffixes })
+                          }}
+                          className="p-1 text-muted-foreground hover:text-red-500 transition-colors"
+                          title="Remove suffix"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+
+                    {draftSettings.keywordSuffixes.length === 0 && (
+                      <p className="text-sm text-muted-foreground italic py-2">
+                        No keyword suffixes configured. Add one below.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Add New Suffix */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newSuffixInput}
+                      onChange={(e) => setNewSuffixInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newSuffixInput.trim()) {
+                          e.preventDefault()
+                          const trimmed = newSuffixInput.trim().toLowerCase()
+                          // Check if suffix already exists
+                          if (!draftSettings.keywordSuffixes.some(s => s.suffix.toLowerCase() === trimmed)) {
+                            updateDraftSettings({
+                              keywordSuffixes: [
+                                ...draftSettings.keywordSuffixes,
+                                { suffix: trimmed, enabled: true }
+                              ]
+                            })
+                          }
+                          setNewSuffixInput('')
+                        }
+                      }}
+                      placeholder="Add new suffix (e.g., signup, free trial)"
+                      className="flex-1 px-3 py-2 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                    <button
+                      onClick={() => {
+                        if (newSuffixInput.trim()) {
+                          const trimmed = newSuffixInput.trim().toLowerCase()
+                          // Check if suffix already exists
+                          if (!draftSettings.keywordSuffixes.some(s => s.suffix.toLowerCase() === trimmed)) {
+                            updateDraftSettings({
+                              keywordSuffixes: [
+                                ...draftSettings.keywordSuffixes,
+                                { suffix: trimmed, enabled: true }
+                              ]
+                            })
+                          }
+                          setNewSuffixInput('')
+                        }
+                      }}
+                      disabled={!newSuffixInput.trim()}
+                      className="px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add
+                    </button>
+                  </div>
+
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Example: With "newsletter" enabled and keyword "marketing", the search becomes "marketing newsletter"
                   </p>
                 </div>
               </>

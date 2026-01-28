@@ -14,10 +14,16 @@ interface APIKeys {
   captcha: string
 }
 
+interface KeywordSuffix {
+  suffix: string
+  enabled: boolean
+}
+
 interface Settings {
   dataSource: 'csv' | 'meta' | 'database'
   csvPath: string
   metaKeywords: string
+  keywordSuffixes: KeywordSuffix[]  // Configurable suffixes to append to keywords (e.g., "newsletter")
   adLimit: number
   maxSignups: number
   headless: boolean
@@ -133,6 +139,9 @@ const initialSettings: Settings = {
   dataSource: 'meta',
   csvPath: '',
   metaKeywords: 'marketing, funnel',
+  keywordSuffixes: [
+    { suffix: 'newsletter', enabled: false },  // Off by default - users can enable it
+  ],
   adLimit: 20,  // Default within valid range (5-30)
   maxSignups: 30,
   headless: false,
@@ -508,7 +517,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'inboxhunter-storage',
-      version: 3, // Increment this when adding new fields
+      version: 4, // Increment this when adding new fields (4 = keywordSuffixes)
       partialize: (state) => ({
         credentials: state.credentials,
         apiKeys: state.apiKeys,
@@ -589,6 +598,18 @@ export const useAppStore = create<AppState>()(
             // Update default model to gpt-4o-mini
             if (state.settings.llmModel === 'gpt-4o') {
               state.settings.llmModel = 'gpt-4o-mini'
+            }
+          }
+        }
+
+        // Migration to version 4: Add keywordSuffixes (disabled by default)
+        if (version < 4) {
+          if (state.settings) {
+            // Add keywordSuffixes with newsletter disabled (was previously hardcoded)
+            if (!state.settings.keywordSuffixes) {
+              state.settings.keywordSuffixes = [
+                { suffix: 'newsletter', enabled: false },
+              ]
             }
           }
         }
