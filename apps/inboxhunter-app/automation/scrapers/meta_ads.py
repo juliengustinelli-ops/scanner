@@ -351,11 +351,11 @@ class MetaAdsScraper:
         ads = []
         page_num = 1
         
-        # URL encode the keyword
-        encoded_keyword = urllib.parse.quote(keyword)
-        
-        # Navigate to Meta Ads Library
-        search_url = f"https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&q={encoded_keyword}&search_type=keyword_unordered&media_type=all"
+        # URL encode the keyword with quotes for exact phrase matching
+        encoded_keyword = urllib.parse.quote(f'"{keyword}"')
+
+        # Navigate to Meta Ads Library using exact phrase search
+        search_url = f"https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&q={encoded_keyword}&search_type=keyword_exact_phrase&media_type=all"
         
         logger.info(f"📡 Navigating to: {search_url}")
         
