@@ -209,87 +209,109 @@ class InboxHunterBot:
             await self.browser.initialize()
             slog.detail_success("✅ Browser ready!")
             
-            # Get URLs from configured source
-            slog.detail(f"⏳ Loading URLs from {self.config.settings.data_source}...")
-            urls = await self._get_urls()
-            
-            if not urls:
-                logger.warning("⚠️ No URLs found from source")
-                return
-            
-            # Always show how many URLs
-            logger.info(f"📋 Processing {len(urls)} URLs...")
-            
-            # Process each URL
+            # Process each URL — loop back to Meta Ads when database is exhausted
             processed = 0
             consecutive_failures = 0
             max_failures = 5
-            
-            for i, url_data in enumerate(urls, 1):
-                # Check stop signal
+
+            while True:
+                # Check stop before fetching next batch
                 if self._stop_check():
-                    slog.detail("⏹ Stop requested - stopping bot")
                     break
-                
-                # Check max signups
+
+                # Check max signups before fetching next batch
                 if processed >= self.config.settings.max_signups:
                     logger.info(f"✅ Reached max signups limit: {self.config.settings.max_signups}")
                     break
-                
-                # Check consecutive failures
-                if consecutive_failures >= max_failures:
-                    slog.detail_warning(f"❌ Too many consecutive failures ({consecutive_failures})")
-                    slog.detail("Cooling down for 60 seconds...")
-                    # Use interruptible sleep so stop signal can break out early
-                    if await self._interruptible_sleep(60):
-                        slog.detail("⏹ Stop requested during cooldown - stopping bot")
+
+                # Get URLs from configured source
+                slog.detail(f"⏳ Loading URLs from {self.config.settings.data_source}...")
+                urls = await self._get_urls()
+
+                if not urls:
+                    # If database is exhausted and original source was meta, loop back
+                    if self.config.settings.data_source == "database":
+                        logger.info("🔄 Database exhausted — switching back to Meta Ads for fresh links...")
+                        self.config.settings.data_source = "meta"
+                        logger.info("📢 DATASOURCE_CHANGE:meta")
+                        urls = await self._get_urls()
+
+                    if not urls:
+                        logger.warning("⚠️ No URLs found from source")
                         break
-                    consecutive_failures = 0
-                
-                url = url_data.get("url", "")
-                source = url_data.get("source", "unknown")
-                
-                # Simple log: just the URL being processed
-                slog.url_start(i, len(urls), url)
-                
-                # Detailed log: separator and source info
-                slog.detail(f"{'='*60}")
-                slog.detail(f"Source: {source}")
-                slog.detail(f"{'='*60}")
-                
-                # Skip if already processed
-                if self.db.is_url_processed(url):
-                    slog.url_skipped("Already processed")
-                    self.stats["duplicates_skipped"] += 1
-                    continue
-                
-                # Process the URL
-                result = await self._process_url(url, source)
 
-                # Check stop immediately after processing (might have been set during long operation)
-                if self._stop_check() and result is not True:
-                    slog.detail("⏹ Stop detected after URL processing - stopping bot")
+                # Always show how many URLs
+                logger.info(f"📋 Processing {len(urls)} URLs...")
+
+                for i, url_data in enumerate(urls, 1):
+                    # Check stop signal
+                    if self._stop_check():
+                        slog.detail("⏹ Stop requested - stopping bot")
+                        break
+
+                    # Check max signups
+                    if processed >= self.config.settings.max_signups:
+                        logger.info(f"✅ Reached max signups limit: {self.config.settings.max_signups}")
+                        break
+
+                    # Check consecutive failures
+                    if consecutive_failures >= max_failures:
+                        slog.detail_warning(f"❌ Too many consecutive failures ({consecutive_failures})")
+                        slog.detail("Cooling down for 60 seconds...")
+                        # Use interruptible sleep so stop signal can break out early
+                        if await self._interruptible_sleep(60):
+                            slog.detail("⏹ Stop requested during cooldown - stopping bot")
+                            break
+                        consecutive_failures = 0
+
+                    url = url_data.get("url", "")
+                    source = url_data.get("source", "unknown")
+
+                    # Simple log: just the URL being processed
+                    slog.url_start(i, len(urls), url)
+
+                    # Detailed log: separator and source info
+                    slog.detail(f"{'='*60}")
+                    slog.detail(f"Source: {source}")
+                    slog.detail(f"{'='*60}")
+
+                    # Skip if already processed
+                    if self.db.is_url_processed(url):
+                        slog.url_skipped("Already processed")
+                        self.stats["duplicates_skipped"] += 1
+                        continue
+
+                    # Process the URL
+                    result = await self._process_url(url, source)
+
+                    # Check stop immediately after processing (might have been set during long operation)
+                    if self._stop_check() and result is not True:
+                        slog.detail("⏹ Stop detected after URL processing - stopping bot")
+                        break
+
+                    # result can be: True (success), False (failed), None (interrupted), "quick_skip" (no form)
+                    if result is None:
+                        # Processing was interrupted by stop request
+                        # URL remains in pending state - don't count as success or failure
+                        slog.detail("⏹ URL left in pending state for next run")
+                        break  # Stop processing more URLs
+                    elif result == "quick_skip":
+                        # No form found - skip delay entirely, move to next URL immediately
+                        consecutive_failures = 0  # Don't count quick skips as failures
+                        continue
+                    elif result:
+                        processed += 1
+                        consecutive_failures = 0
+                        # Success logged by _process_url
+                    else:
+                        consecutive_failures += 1
+                        # Failure logged by _process_url
+
+                    # No delay between URLs - move immediately to next
+
+                # If stopped or max reached, exit the outer loop too
+                if self._stop_check() or processed >= self.config.settings.max_signups:
                     break
-
-                # result can be: True (success), False (failed), None (interrupted), "quick_skip" (no form)
-                if result is None:
-                    # Processing was interrupted by stop request
-                    # URL remains in pending state - don't count as success or failure
-                    slog.detail("⏹ URL left in pending state for next run")
-                    break  # Stop processing more URLs
-                elif result == "quick_skip":
-                    # No form found - skip delay entirely, move to next URL immediately
-                    consecutive_failures = 0  # Don't count quick skips as failures
-                    continue
-                elif result:
-                    processed += 1
-                    consecutive_failures = 0
-                    # Success logged by _process_url
-                else:
-                    consecutive_failures += 1
-                    # Failure logged by _process_url
-
-                # No delay between URLs - move immediately to next
 
         except Exception as e:
             error_str = str(e).lower()
