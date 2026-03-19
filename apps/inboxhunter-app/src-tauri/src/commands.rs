@@ -42,6 +42,15 @@ pub struct APIKeys {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct KeywordSuffix {
+    pub suffix: String,
+    pub enabled: bool,
+}
+
+fn default_true() -> bool { true }
+fn default_us() -> String { "US".to_string() }
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Settings {
     #[serde(rename = "dataSource")]
     pub data_source: String,
@@ -49,12 +58,16 @@ pub struct Settings {
     pub csv_path: String,
     #[serde(rename = "metaKeywords")]
     pub meta_keywords: String,
+    #[serde(rename = "keywordSuffixes", default)]
+    pub keyword_suffixes: Vec<KeywordSuffix>,
     #[serde(rename = "adLimit")]
     pub ad_limit: i32,
     #[serde(rename = "maxSignups")]
     pub max_signups: i32,
     pub headless: bool,
     pub debug: bool,
+    #[serde(rename = "detailedLogs", default)]
+    pub detailed_logs: bool,
     #[serde(rename = "minDelay")]
     pub min_delay: i32,
     #[serde(rename = "maxDelay")]
@@ -63,6 +76,10 @@ pub struct Settings {
     pub llm_model: String,
     #[serde(rename = "batchPlanning")]
     pub batch_planning: bool,
+    #[serde(rename = "autoSwitchToDatabase", default = "default_true")]
+    pub auto_switch_to_database: bool,
+    #[serde(default = "default_us")]
+    pub country: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

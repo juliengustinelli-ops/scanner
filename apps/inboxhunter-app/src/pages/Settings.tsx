@@ -90,7 +90,7 @@ const validateKeywords = (keywords: string, isMetaSource: boolean): string | nul
 const validateAdLimit = (adLimit: number): string | null => {
   if (isNaN(adLimit)) return 'Please enter a valid number'
   if (adLimit < 5) return 'Must be at least 5'
-  if (adLimit > 1000000) return 'Must be at most 1,000,000'
+  if (adLimit > 10000) return 'Must be at most 10,000'
   return null
 }
 
@@ -127,6 +127,8 @@ interface DraftSettings {
   maxDelay: number
   llmModel: string
   batchPlanning: boolean
+  autoSwitchToDatabase: boolean
+  country: string
 }
 
 export function SettingsPage() {
@@ -956,16 +958,16 @@ export function SettingsPage() {
                   <input
                     type="number"
                     min={5}
-                    max={1000000}
+                    max={10000}
                     value={adLimitInput}
                     onChange={(e) => {
                       // Allow free typing - just update the string state
                       const inputValue = e.target.value
                       setAdLimitInput(inputValue)
-                      
+
                       // Only update draft if it's a valid number
                       const numValue = parseInt(inputValue)
-                      if (!isNaN(numValue) && numValue >= 5 && numValue <= 1000000) {
+                      if (!isNaN(numValue) && numValue >= 5 && numValue <= 10000) {
                         updateDraftSettings({ adLimit: numValue })
                       }
                     }}
@@ -973,16 +975,16 @@ export function SettingsPage() {
                       handleBlur('adLimit')
                       const inputValue = e.target.value
                       const numValue = parseInt(inputValue)
-                      
+
                       // Validate and clamp on blur
                       if (isNaN(numValue) || numValue < 5) {
                         // Too low or invalid - set to minimum
                         const clamped = 5
                         setAdLimitInput(clamped.toString())
                         updateDraftSettings({ adLimit: clamped })
-                      } else if (numValue > 1000000) {
+                      } else if (numValue > 10000) {
                         // Too high - set to maximum
-                        const clamped = 1000000
+                        const clamped = 10000
                         setAdLimitInput(clamped.toString())
                         updateDraftSettings({ adLimit: clamped })
                       } else {
@@ -993,13 +995,13 @@ export function SettingsPage() {
                     className={getInputClass('adLimit', 'w-48')}
                   />
                   {renderError('adLimit')}
-                  {adLimitInput && parseInt(adLimitInput) > 500000 && (
+                  {adLimitInput && parseInt(adLimitInput) > 5000 && (
                     <p className="mt-1 text-xs text-yellow-400">
-                      ⚠ Values over 500,000 may slow your machine or cause the application to not perform properly
+                      High values may slow your machine or cause the application to not perform properly
                     </p>
                   )}
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Between 5 and 1,000,000 ads
+                    Between 5 and 10,000 ads
                   </p>
                 </div>
 
@@ -1124,6 +1126,67 @@ export function SettingsPage() {
                   <p className="mt-2 text-xs text-muted-foreground">
                     Example: With "newsletter" enabled and keyword "marketing", the search becomes "marketing newsletter"
                   </p>
+                </div>
+
+                {/* Country Selector */}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Country
+                  </label>
+                  <select
+                    value={draftSettings.country || 'US'}
+                    onChange={(e) => updateDraftSettings({ country: e.target.value })}
+                    className="w-48 px-4 py-2.5 rounded-lg bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    <option value="US">🇺🇸 United States</option>
+                    <option value="GB">🇬🇧 United Kingdom</option>
+                    <option value="CA">🇨🇦 Canada</option>
+                    <option value="AU">🇦🇺 Australia</option>
+                    <option value="DE">🇩🇪 Germany</option>
+                    <option value="FR">🇫🇷 France</option>
+                    <option value="IN">🇮🇳 India</option>
+                    <option value="BR">🇧🇷 Brazil</option>
+                    <option value="MX">🇲🇽 Mexico</option>
+                    <option value="NL">🇳🇱 Netherlands</option>
+                    <option value="ES">🇪🇸 Spain</option>
+                    <option value="IT">🇮🇹 Italy</option>
+                    <option value="PL">🇵🇱 Poland</option>
+                    <option value="SE">🇸🇪 Sweden</option>
+                    <option value="NO">🇳🇴 Norway</option>
+                    <option value="DK">🇩🇰 Denmark</option>
+                    <option value="FI">🇫🇮 Finland</option>
+                    <option value="AE">🇦🇪 UAE</option>
+                    <option value="SG">🇸🇬 Singapore</option>
+                    <option value="ZA">🇿🇦 South Africa</option>
+                  </select>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Country to search in the Meta Ads Library
+                  </p>
+                </div>
+
+                {/* Auto-Switch Toggle */}
+                <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50 border border-border">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Auto-switch to database mode</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      After scraping Meta Ads, automatically switch to processing from the database queue
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => updateDraftSettings({ autoSwitchToDatabase: !draftSettings.autoSwitchToDatabase })}
+                    className={`p-1 rounded transition-colors ${
+                      draftSettings.autoSwitchToDatabase
+                        ? 'text-primary hover:text-primary/80'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                    title={draftSettings.autoSwitchToDatabase ? 'Disable auto-switch' : 'Enable auto-switch'}
+                  >
+                    {draftSettings.autoSwitchToDatabase ? (
+                      <ToggleRight className="w-8 h-8" />
+                    ) : (
+                      <ToggleLeft className="w-8 h-8" />
+                    )}
+                  </button>
                 </div>
               </>
             )}
@@ -1266,16 +1329,16 @@ export function SettingsPage() {
               <input
                 type="number"
                 min={1}
-                max={100}
+                max={10000}
                 value={maxSignupsInput}
                 onChange={(e) => {
                   // Allow free typing - just update the string state
                   const inputValue = e.target.value
                   setMaxSignupsInput(inputValue)
-                  
+
                   // Only update draft if it's a valid number in range
                   const numValue = parseInt(inputValue)
-                  if (!isNaN(numValue) && numValue >= 1 && numValue <= 100) {
+                  if (!isNaN(numValue) && numValue >= 1 && numValue <= 10000) {
                     updateDraftSettings({ maxSignups: numValue })
                   }
                 }}
@@ -1283,14 +1346,14 @@ export function SettingsPage() {
                   handleBlur('maxSignups')
                   const inputValue = e.target.value
                   const numValue = parseInt(inputValue)
-                  
+
                   // Validate and clamp on blur
                   if (isNaN(numValue) || numValue < 1) {
                     const clamped = 1
                     setMaxSignupsInput(clamped.toString())
                     updateDraftSettings({ maxSignups: clamped })
-                  } else if (numValue > 100) {
-                    const clamped = 100
+                  } else if (numValue > 10000) {
+                    const clamped = 10000
                     setMaxSignupsInput(clamped.toString())
                     updateDraftSettings({ maxSignups: clamped })
                   } else {
@@ -1300,7 +1363,7 @@ export function SettingsPage() {
                 className="w-32 px-4 py-2.5 rounded-lg bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
               <p className="mt-2 text-sm text-muted-foreground">
-                Maximum number of sign-ups per session (1-100)
+                Maximum number of sign-ups per session (1-10,000)
               </p>
             </div>
 

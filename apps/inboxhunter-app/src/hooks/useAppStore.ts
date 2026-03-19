@@ -34,6 +34,8 @@ interface Settings {
   maxDelay: number
   llmModel: string
   batchPlanning: boolean  // Use batch planning for faster execution
+  autoSwitchToDatabase: boolean  // Auto-switch to database mode after scraping Meta Ads
+  country: string  // Country code for Meta Ads Library search (e.g., 'US', 'GB')
 }
 
 interface Stats {
@@ -152,6 +154,8 @@ const initialSettings: Settings = {
   maxDelay: 30,
   llmModel: 'gpt-4o-mini',
   batchPlanning: true,  // Enabled by default - sends HTML once, gets all actions (faster, cheaper)
+  autoSwitchToDatabase: true,  // Auto-switch to database mode after scraping (default on)
+  country: 'US',  // Default to US for Meta Ads search
 }
 
 const initialStats: Stats = {
@@ -517,7 +521,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'inboxhunter-storage',
-      version: 4, // Increment this when adding new fields (4 = keywordSuffixes)
+      version: 5, // Increment this when adding new fields (5 = autoSwitchToDatabase + country)
       partialize: (state) => ({
         credentials: state.credentials,
         apiKeys: state.apiKeys,
@@ -610,6 +614,18 @@ export const useAppStore = create<AppState>()(
               state.settings.keywordSuffixes = [
                 { suffix: 'newsletter', enabled: false },
               ]
+            }
+          }
+        }
+
+        // Migration to version 5: Add autoSwitchToDatabase + country
+        if (version < 5) {
+          if (state.settings) {
+            if (state.settings.autoSwitchToDatabase === undefined) {
+              state.settings.autoSwitchToDatabase = true
+            }
+            if (!state.settings.country) {
+              state.settings.country = 'US'
             }
           }
         }

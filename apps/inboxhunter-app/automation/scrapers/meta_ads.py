@@ -143,7 +143,7 @@ class MetaAdsScraper:
     # Scroll iterations per page
     SCROLLS_PER_PAGE = 8
 
-    def __init__(self, keywords: List[str], max_ads: int = 100, headless: bool = False, keyword_suffixes: List[Dict] = None):
+    def __init__(self, keywords: List[str], max_ads: int = 100, headless: bool = False, keyword_suffixes: List[Dict] = None, country: str = 'US'):
         # Clean keywords
         raw_keywords = [k.strip() for k in keywords if k.strip()]
 
@@ -159,6 +159,7 @@ class MetaAdsScraper:
         
         self.max_ads = max_ads
         self.target_ads = int(max_ads * self.TARGET_PERCENTAGE)  # Target ~80%
+        self.country = country.upper()
         self.headless = headless
         self.playwright = None
         self.browser: Optional[Browser] = None
@@ -355,7 +356,7 @@ class MetaAdsScraper:
         encoded_keyword = urllib.parse.quote(f'"{keyword}"')
 
         # Navigate to Meta Ads Library using exact phrase search
-        search_url = f"https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&q={encoded_keyword}&search_type=keyword_exact_phrase&media_type=all"
+        search_url = f"https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country={self.country}&q={encoded_keyword}&search_type=keyword_exact_phrase&media_type=all"
         
         logger.info(f"📡 Navigating to: {search_url}")
         

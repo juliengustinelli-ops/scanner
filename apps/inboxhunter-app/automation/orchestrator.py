@@ -391,7 +391,8 @@ class InboxHunterBot:
                 keywords=self.config.settings.meta_keywords.split(","),
                 max_ads=self.config.settings.ad_limit,
                 headless=self.config.settings.headless,
-                keyword_suffixes=keyword_suffixes
+                keyword_suffixes=keyword_suffixes,
+                country=getattr(self.config.settings, 'country', 'US')
             )
             await scraper.initialize()
             urls = await scraper.scrape()
@@ -404,16 +405,19 @@ class InboxHunterBot:
                 if added > 0:
                     slog.detail(f"   💾 Saved {added} new URLs to database")
                 
-                # AUTO-SWITCH: After scraping, switch to database mode and process from there
-                logger.info("🔄 Switching to database mode for processing...")
-                slog.detail("   📂 Data source switched: meta → database")
-                
-                # Update the config to use database as the source
-                self.config.settings.data_source = "database"
-                
-                # Signal to frontend to update the data source setting
-                # This is done via a special log message that the frontend can parse
-                logger.info("📢 DATASOURCE_CHANGE:database")
+                # AUTO-SWITCH: After scraping, switch to database mode (if enabled)
+                if getattr(self.config.settings, 'auto_switch_to_database', True):
+                    logger.info("🔄 Switching to database mode for processing...")
+                    slog.detail("   📂 Data source switched: meta → database")
+
+                    # Update the config to use database as the source
+                    self.config.settings.data_source = "database"
+
+                    # Signal to frontend to update the data source setting
+                    logger.info("📢 DATASOURCE_CHANGE:database")
+                else:
+                    logger.info("🔒 Auto-switch disabled — staying in Meta Ads mode")
+                    return [{"url": u["url"], "source": "meta"} for u in urls]
                 
                 # Now get URLs from database (which includes the just-scraped URLs)
                 slog.detail("📂 Loading URLs from database (scraped queue)...")

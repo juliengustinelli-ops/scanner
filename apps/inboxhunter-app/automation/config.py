@@ -68,25 +68,27 @@ class Settings(BaseModel):
     max_delay: int = Field(default=30, alias="maxDelay")  # Default 30s, range 10-120
     llm_model: str = Field(default="gpt-4o-mini", alias="llmModel")  # Cheaper model by default
     batch_planning: bool = Field(default=True, alias="batchPlanning")  # Batch planning is now the default (faster execution)
+    auto_switch_to_database: bool = Field(default=True, alias="autoSwitchToDatabase")  # Auto-switch to database mode after Meta Ads scrape
+    country: str = Field(default="US", alias="country")  # Country code for Meta Ads Library search
 
     @field_validator('ad_limit')
     @classmethod
     def validate_ad_limit(cls, v: int) -> int:
-        """Validate ad_limit is within valid range (5-100)."""
+        """Validate ad_limit is within valid range (5-10000)."""
         if v < 5:
             return 5
-        if v > 100:
-            return 100
+        if v > 10000:
+            return 10000
         return v
     
     @field_validator('max_signups')
     @classmethod
     def validate_max_signups(cls, v: int) -> int:
-        """Validate max_signups is within valid range (1-100)."""
+        """Validate max_signups is within valid range (1-10000)."""
         if v < 1:
             return 1
-        if v > 100:
-            return 100
+        if v > 10000:
+            return 10000
         return v
     
     @field_validator('min_delay')
