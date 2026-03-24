@@ -427,7 +427,10 @@ class InboxHunterBot:
                     logger.success(f"✅ Found {len(unprocessed_urls)} unprocessed URLs in database")
                     return [{"url": url, "source": "database"} for url in unprocessed_urls]
                 else:
-                    logger.warning("⚠️ No unprocessed URLs in database after scraping")
+                    logger.warning("⚠️ No unprocessed URLs in database after scraping — all already processed")
+                    # Revert data_source to meta so the main loop breaks cleanly instead of re-triggering
+                    self.config.settings.data_source = "meta"
+                    logger.info("📢 DATASOURCE_CHANGE:meta")
                     return []
             else:
                 logger.warning("⚠️ No URLs found from Meta Ads Library")
