@@ -371,8 +371,16 @@ class InboxHunterBot:
         if source == "csv":
             slog.detail("📂 Loading URLs from CSV...")
             parser = CSVParser(self.config.settings.csv_path)
-            urls = parser.parse()
-            slog.detail_success(f"✅ Loaded {len(urls)} URLs from CSV")
+            all_urls = parser.parse()
+            # Filter out already-processed URLs so the main loop exits cleanly
+            urls = [u for u in all_urls if not self.db.is_url_processed(u["url"])]
+            already_done = len(all_urls) - len(urls)
+            if already_done > 0:
+                slog.detail(f"   ⏭ {already_done} already processed — skipping")
+            if not urls:
+                logger.info("✅ All CSV URLs have been processed")
+                return []
+            slog.detail_success(f"✅ {len(urls)} URLs ready from CSV")
             return urls
         
         elif source == "meta":
