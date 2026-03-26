@@ -82,6 +82,8 @@ class AgentState:
         self.non_existent_selectors: set = set()  # Blocklist of selectors that were proven to not exist
         # Proof of submission
         self.submission_proof: Dict[str, Any] = {}  # Screenshot, confirmation messages, network data
+        # NEW: Track popup/modal that contains the signup form
+        self.popup_has_form: bool = False  # True when a visible popup IS the signup form
     
     def add_action(self, action: AgentAction, field_type: str = None):
         self.actions_taken.append(action)
@@ -630,6 +632,11 @@ class AIAgentOrchestrator:
                             "skipped_mid_execution": True,
                             "skipped_reason": action_type
                         }
+                    elif overlay_result.get("has_signup_form"):
+                        # The popup IS the signup form - flag it and re-observe so LLM fills popup fields
+                        self.state.popup_has_form = True
+                        slog.detail("   📋 Signup popup detected - LLM will fill popup form fields")
+                        page_state = await self._observe_page(use_vision=True)
                     elif overlay_result.get("has_error"):
                         slog.detail_warning(f"⚠️ Error in overlay: {overlay_result.get('reason')}")
                         # Don't immediately fail - let the bot try to handle it
@@ -2416,6 +2423,8 @@ class AIAgentOrchestrator:
             } if self.state.active_form_id else None,
             # BLOCKLIST: Selectors proven to NOT exist on the page - DO NOT suggest these
             "non_existent_selectors": list(self.state.non_existent_selectors),
+            # POPUP FORM: A visible popup/modal is the signup form
+            "popup_has_form": self.state.popup_has_form,
         }
     
     def _parse_llm_response(self, llm_response: Dict[str, Any], page_state: Dict[str, Any] = None) -> Optional[AgentAction]:
@@ -3370,6 +3379,15 @@ class AIAgentOrchestrator:
                                     ];
                                     const hasRecommendation = recommendationIndicators.some(r => overlayText.includes(r) || iframeSrcLower.includes(r));
                                     
+                                    // Check if overlay contains signup form fields (email input)
+                                    const emailInput = overlay.querySelector(
+                                        'input[type="email"], input[name*="email" i], input[placeholder*="email" i], input[id*="email" i]'
+                                    );
+                                    const submitBtn = overlay.querySelector(
+                                        'button[type="submit"], input[type="submit"], button'
+                                    );
+                                    const hasFormInputs = emailInput !== null && submitBtn !== null;
+
                                     // Look for close button
                                     const closeSelectors = [
                                         '[class*="close"]',
@@ -3380,7 +3398,7 @@ class AIAgentOrchestrator:
                                         '.formkit-close',
                                         'button[type="button"]:has(svg)',
                                     ];
-                                    
+
                                     let closeBtn = null;
                                     for (const closeSelector of closeSelectors) {
                                         try {
@@ -3388,7 +3406,7 @@ class AIAgentOrchestrator:
                                             if (closeBtn) break;
                                         } catch(e) {}
                                     }
-                                    
+
                                     return {
                                         found: true,
                                         selector: selector,
@@ -3398,9 +3416,10 @@ class AIAgentOrchestrator:
                                         hasError: hasError,
                                         hasSuccessText: hasSuccessText,
                                         hasRecommendation: hasRecommendation,
+                                        hasFormInputs: hasFormInputs,
                                         hasCloseBtn: closeBtn !== null,
-                                        closeBtnSelector: closeBtn ? (closeBtn.id ? '#' + closeBtn.id : 
-                                            (closeBtn.className ? '.' + closeBtn.className.split(' ')[0] : 
+                                        closeBtnSelector: closeBtn ? (closeBtn.id ? '#' + closeBtn.id :
+                                            (closeBtn.className ? '.' + closeBtn.className.split(' ')[0] :
                                             '[data-formkit-close], .formkit-close, [aria-label*="close"], button:has(svg)')) : null,
                                         text: overlayText.substring(0, 500)
                                     };
@@ -3447,7 +3466,13 @@ class AIAgentOrchestrator:
                 slog.detail(f"   🔍 Overlay contains iframe but no clear success indicator")
                 slog.detail(f"      Iframe src: {iframe_src[:50] if iframe_src else 'unknown'}...")
                 # Don't return success - let the loop continue to analyze
-            
+
+            # SIGNUP POPUP: overlay contains a form with email input - this IS the signup form
+            # Don't close it; tell the main loop to fill the popup form instead
+            if overlay_info.get("hasFormInputs") and not overlay_info.get("hasSuccessText"):
+                slog.detail("   📋 Popup contains signup form (email + submit) - will fill popup form")
+                return {"has_signup_form": True}
+
             # Try to close the overlay if it's blocking and doesn't indicate success
             if overlay_info.get("hasCloseBtn"):
                 try:
@@ -3527,14 +3552,21 @@ class AIAgentOrchestrator:
                         result.isVisible = true;
                         result.type = 'recaptcha_v2';
                         result.iframeSelector = 'iframe[src*="recaptcha"][src*="anchor"]';
-                        
-                        // Try to find sitekey
+
+                        // Try to find sitekey from data-sitekey attribute
                         const sitekeyEl = document.querySelector('[data-sitekey]');
                         if (sitekeyEl) {
                             result.sitekey = sitekeyEl.getAttribute('data-sitekey');
                         }
+                        // Fallback: extract sitekey from iframe src URL (?k=SITEKEY)
+                        if (!result.sitekey) {
+                            try {
+                                const url = new URL(recaptchaFrame.src);
+                                result.sitekey = url.searchParams.get('k') || url.searchParams.get('sitekey');
+                            } catch(e) {}
+                        }
                     }
-                    
+
                     // Check for visible g-recaptcha container
                     const gRecaptcha = document.querySelector('.g-recaptcha');
                     if (!result.found && gRecaptcha && isElementVisible(gRecaptcha)) {
@@ -3545,9 +3577,16 @@ class AIAgentOrchestrator:
                             result.type = 'recaptcha_v2';
                             result.iframeSelector = '.g-recaptcha iframe';
                             result.sitekey = gRecaptcha.getAttribute('data-sitekey');
+                            // Fallback: extract from iframe src URL
+                            if (!result.sitekey) {
+                                try {
+                                    const url = new URL(iframe.src);
+                                    result.sitekey = url.searchParams.get('k') || url.searchParams.get('sitekey');
+                                } catch(e) {}
+                            }
                         }
                     }
-                    
+
                     // Check for visible hCaptcha
                     const hcaptchaFrame = document.querySelector('iframe[src*="hcaptcha"]');
                     if (!result.found && hcaptchaFrame && isElementVisible(hcaptchaFrame)) {
@@ -3555,10 +3594,17 @@ class AIAgentOrchestrator:
                         result.isVisible = true;
                         result.type = 'hcaptcha';
                         result.iframeSelector = 'iframe[src*="hcaptcha"]';
-                        
+
                         const sitekeyEl = document.querySelector('[data-sitekey]');
                         if (sitekeyEl) {
                             result.sitekey = sitekeyEl.getAttribute('data-sitekey');
+                        }
+                        // Fallback: extract from hcaptcha iframe src URL (?sitekey=...)
+                        if (!result.sitekey) {
+                            try {
+                                const url = new URL(hcaptchaFrame.src);
+                                result.sitekey = url.searchParams.get('sitekey');
+                            } catch(e) {}
                         }
                     }
                     

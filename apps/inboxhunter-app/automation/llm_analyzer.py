@@ -584,6 +584,20 @@ RESULT: ✅ SIGNUP FORM FOUND - "{reason}"
 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
 """
         
+        # Popup form context - a visible modal IS the signup form
+        popup_has_form = context.get("popup_has_form", False)
+        popup_form_section = ""
+        if popup_has_form:
+            popup_form_section = """
+🚨🚨🚨 SIGNUP POPUP IS ACTIVE 🚨🚨🚨
+A POPUP/MODAL is currently visible on the page and it CONTAINS the signup form.
+→ Fill the email field INSIDE the popup, NOT the one on the main page behind it.
+→ After filling popup fields, click the submit button INSIDE the popup.
+→ Do NOT scroll away from the popup. Do NOT try to close it.
+→ The popup inputs are in VISIBLE INPUTS below — prioritize selectors inside modal/popup/overlay containers.
+🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
+"""
+
         # Active form context - CRITICAL for clicking the correct submit button
         active_form = context.get("active_form")
         active_form_section = ""
@@ -650,7 +664,7 @@ TRY A DIFFERENT APPROACH!
             if not last.get('success') and last.get('error'):
                 history_text += f"\n   Error: {last.get('error')[:100]}"
         
-        return f"""{blocklist_section}{failed_warning_section}{local_analysis_section}{active_form_section}You are an AI agent signing up for an email list. Your goal is to SIGN UP (create new account), NOT login.
+        return f"""{blocklist_section}{failed_warning_section}{local_analysis_section}{popup_form_section}{active_form_section}You are an AI agent signing up for an email list. Your goal is to SIGN UP (create new account), NOT login.
 
 🚨 SIGNUP FORMS TO LOOK FOR 🚨
 - Newsletter signup forms (often in footer or sidebar)
