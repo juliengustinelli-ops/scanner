@@ -1,6 +1,6 @@
 {
   "name": "inboxhunter-app",
-  "version": "1.2.49",
+  "version": "1.2.50",
   "description": "AI-powered lead generation and automation platform",
   "type": "module",
   "scripts": {

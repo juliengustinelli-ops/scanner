@@ -596,6 +596,16 @@ class AIAgentOrchestrator:
                         self.state.success = False
                         break
                 
+                # Early popup detection: on step 1 (before any LLM action), check if the page
+                # already shows a popup/modal that IS the signup form. Setting popup_has_form early
+                # prevents the LLM from bouncing between the main-page CTA and the popup.
+                if self.state.current_step == 1 and not self.state.popup_has_form:
+                    early_overlay = await self._check_and_handle_overlay()
+                    if early_overlay.get("has_signup_form"):
+                        self.state.popup_has_form = True
+                        slog.detail("   📋 Signup popup visible on load — LLM will fill popup form directly")
+                        page_state = await self._observe_page(use_vision=True)
+
                 # Check for blocking overlay after form submission (could indicate success, CAPTCHA, or error)
                 if self.state.form_submitted and self.state.submit_attempts > 0:
                     overlay_result = await self._check_and_handle_overlay()
@@ -657,11 +667,13 @@ class AIAgentOrchestrator:
                     
                     captcha_result = await self._handle_captcha()
                     if captcha_result.get("solved"):
+                        self.state.captcha_solved = True
                         slog.detail_success("   ✅ CAPTCHA solved!")
                         # Re-observe page after solving
                         page_state = await self._observe_page(use_vision=True)
                     elif captcha_result.get("skipped"):
-                        # Captcha couldn't be solved - mark it so we don't keep trying
+                        # Captcha couldn't be solved - mark attempted so we don't retry every step
+                        self.state.captcha_attempted = True
                         slog.detail_warning("   ⚠️ CAPTCHA could not be solved - bot will attempt to proceed anyway")
                         # Don't immediately fail - let the LLM try, it might work for some forms
                 

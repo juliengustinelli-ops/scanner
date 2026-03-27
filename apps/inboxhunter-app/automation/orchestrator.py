@@ -1183,16 +1183,32 @@ class InboxHunterBot:
                     element = await self.browser.page.wait_for_selector(selector, timeout=3000)
                     if element and await element.is_visible():
                         await element.scroll_into_view_if_needed()
-                        await element.click()
-                        await asyncio.sleep(2)  # Wait for page to update
-                        
+
+                        # Listen for a new tab that might open (target="_blank" links)
+                        new_tab_opened = False
+                        try:
+                            async with self.browser.context.expect_page(timeout=3000) as new_page_info:
+                                await element.click()
+                            new_tab = await new_page_info.value
+                            await new_tab.wait_for_load_state("domcontentloaded", timeout=10000)
+                            # Switch to the new tab
+                            self.browser.page = new_tab
+                            new_tab_opened = True
+                            slog.detail(f"   🆕 Followed link that opened in a new tab: {new_tab.url[:80]}")
+                        except Exception:
+                            # No new tab opened — normal navigation on same page
+                            pass
+
+                        if not new_tab_opened:
+                            await asyncio.sleep(2)  # Wait for page to update
+
                         # Check if we were redirected to an app store
                         current_url = self.browser.page.url
                         is_app_store, matched_domain = is_app_store_url(current_url)
                         if is_app_store:
                             slog.detail_warning(f"   📱 App store redirect detected: {matched_domain}")
                             return (False, f"app_store:{matched_domain}")
-                        
+
                         # Re-analyze the page
                         new_analysis = await self._analyze_page()
                         if new_analysis.has_signup_form:
