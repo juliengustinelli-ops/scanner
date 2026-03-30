@@ -606,6 +606,16 @@ class AIAgentOrchestrator:
                         slog.detail("   📋 Signup popup visible on load — LLM will fill popup form directly")
                         page_state = await self._observe_page(use_vision=True)
 
+                # After any click action (before form submission), check if a signup popup appeared.
+                # This handles CTA buttons that open a popup form mid-flow.
+                if (self.last_action_type == "click" and not self.state.form_submitted and
+                        not self.state.popup_has_form and self.state.current_step > 1):
+                    click_overlay = await self._check_and_handle_overlay()
+                    if click_overlay.get("has_signup_form"):
+                        self.state.popup_has_form = True
+                        slog.detail("   📋 Signup popup appeared after CTA click — LLM will fill popup form directly")
+                        page_state = await self._observe_page(use_vision=True)
+
                 # Check for blocking overlay after form submission (could indicate success, CAPTCHA, or error)
                 if self.state.form_submitted and self.state.submit_attempts > 0:
                     overlay_result = await self._check_and_handle_overlay()
@@ -3180,6 +3190,17 @@ class AIAgentOrchestrator:
                                         return { found: true, isSuccess: true };
                                     }
 
+                                    // Skip if this overlay IS the signup form - don't dismiss the form the bot is filling!
+                                    const emailInput = overlay.querySelector(
+                                        'input[type="email"], input[name*="email" i], input[placeholder*="email" i], input[id*="email" i]'
+                                    );
+                                    const submitBtn = overlay.querySelector(
+                                        'button[type="submit"], input[type="submit"], button'
+                                    );
+                                    if (emailInput !== null && submitBtn !== null) {
+                                        return { found: true, isSignupForm: true };
+                                    }
+
                                     // Look for close button
                                     const closeSelectors = [
                                         '[class*="close"]',
@@ -3229,6 +3250,11 @@ class AIAgentOrchestrator:
             # Don't dismiss success overlays
             if overlay_info.get("isSuccess"):
                 logger.debug("Found success overlay - not dismissing")
+                return False
+
+            # Don't dismiss signup form overlays - the bot needs to fill them
+            if overlay_info.get("isSignupForm"):
+                logger.debug("Found signup form overlay - not dismissing (bot will fill it)")
                 return False
 
             slog.detail(f"   🔲 Found blocking overlay: {overlay_info.get('overlaySelector', 'unknown')}")
@@ -3355,8 +3381,12 @@ class AIAgentOrchestrator:
                                         'security check', 'challenge', 'i am not a robot',
                                         'verify you are not a robot', 'prove you are human'
                                     ];
+                                    // NOTE: overlayHtml is intentionally excluded here — it causes false positives
+                                    // because invisible reCAPTCHA v3 embeds 'recaptcha' in script tags/data attrs
+                                    // even when no visual CAPTCHA challenge is shown.
+                                    // hasCaptchaIframe (below) handles real CAPTCHA iframe detection.
                                     const hasCaptcha = captchaIndicators.some(c =>
-                                        overlayText.includes(c) || overlayHtml.includes(c) || iframeSrcLower.includes(c)
+                                        overlayText.includes(c) || iframeSrcLower.includes(c)
                                     );
 
                                     // Check for CAPTCHA iframes
