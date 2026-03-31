@@ -682,10 +682,14 @@ class AIAgentOrchestrator:
                         # Re-observe page after solving
                         page_state = await self._observe_page(use_vision=True)
                     elif captcha_result.get("skipped"):
-                        # Captcha couldn't be solved - mark attempted so we don't retry every step
+                        # CAPTCHA present but unsolvable — no form with a visible unsolved CAPTCHA
+                        # will ever submit, so continuing wastes steps and causes the stuck-loop.
+                        # Skip this page immediately.
                         self.state.captcha_attempted = True
-                        slog.detail_warning("   ⚠️ CAPTCHA could not be solved - bot will attempt to proceed anyway")
-                        # Don't immediately fail - let the LLM try, it might work for some forms
+                        self.state.complete = True
+                        self.state.success = False
+                        slog.detail_warning("   ⚠️ CAPTCHA could not be solved - skipping page")
+                        break
                 
                 # Get next action from LLM with rate limit handling
                 next_action = await self._reason_next_action(page_state)
@@ -717,12 +721,22 @@ class AIAgentOrchestrator:
                     # Store humanized error message for better user feedback
                     next_action.error_message = self._humanize_error(raw_error, next_action)
                     slog.detail_warning(f"⚠️ Action failed: {next_action.error_message}")
-                    
+
                     # Provide hints for common errors (detailed only)
                     if "hidden" in raw_error.lower():
                         slog.detail("   💡 Hint: Element is hidden. For checkboxes, try fill_field with field_type='checkbox'")
                     elif "timeout" in raw_error.lower() or "not found" in raw_error.lower():
                         slog.detail("   💡 Hint: Selector not found. Try different selector")
+
+                    # If a click was intercepted by another element, a popup is likely blocking.
+                    # Run overlay detection immediately so the next step has popup_has_form set.
+                    if ("intercept" in raw_error.lower() or "another element" in raw_error.lower()) and not self.state.popup_has_form:
+                        slog.detail("   🔲 Click intercepted — checking for blocking popup...")
+                        intercept_overlay = await self._check_and_handle_overlay()
+                        if intercept_overlay.get("has_signup_form"):
+                            self.state.popup_has_form = True
+                            slog.detail("   📋 Popup is blocking — LLM will target popup form next step")
+                            page_state = await self._observe_page(use_vision=True)
                 
                 # Track field type for fill_field actions to prevent refilling
                 field_type = getattr(next_action, 'field_type', None)
@@ -1258,6 +1272,26 @@ class AIAgentOrchestrator:
             slog.detail("📄 Getting page HTML for batch planning...")
             page_state = await self._observe_page(use_vision=False, minimal=True)
 
+            # Check for visible CAPTCHA before planning.
+            # The batch path sends HTML to the LLM which has no way to solve CAPTCHAs —
+            # it will produce a plan that skips the CAPTCHA widget and the form won't submit.
+            # Attempt to solve here first; if unsolvable, skip the page immediately.
+            captcha_info = page_state.get("captcha_detected", {})
+            if captcha_info.get("found") and captcha_info.get("isVisible"):
+                captcha_type = captcha_info.get("type", "unknown")
+                slog.detail(f"   🔒 Visible CAPTCHA detected ({captcha_type}) - attempting to solve before planning...")
+                captcha_result = await self._handle_captcha()
+                if captcha_result.get("solved"):
+                    slog.detail_success("   ✅ CAPTCHA solved - continuing with batch planning")
+                    page_state = await self._observe_page(use_vision=False, minimal=True)
+                else:
+                    slog.detail_warning("   ⚠️ CAPTCHA could not be solved - skipping page")
+                    return {
+                        "success": False, "fields_filled": [], "actions": [],
+                        "errors": ["CAPTCHA present and could not be solved automatically"],
+                        "skipped_reason": "captcha"
+                    }
+
             # Build context for batch planning
             context = self._build_reasoning_context(page_state)
 
@@ -1355,6 +1389,64 @@ class AIAgentOrchestrator:
                 self.state.add_action(action, field_type=field_type)
                 self.state.current_step += 1
 
+            # Step 3b: Post-submit lazy CAPTCHA check.
+            # Some sites (e.g. MailerLite) don't show reCAPTCHA until AFTER clicking Subscribe.
+            # If a submit was attempted and no POST response was captured, check whether a
+            # CAPTCHA appeared and try to solve it before proceeding to verification.
+            submit_attempted = self.state.form_submitted
+            no_post_received = not (self.state.submission_response or {}).get("response_received", False)
+            if submit_attempted and no_post_received and not self.state.captcha_solved:
+                post_submit_captcha = await self.page.evaluate("""
+                    () => {
+                        const result = { found: false, type: null, isVisible: false };
+                        const isVisible = (el) => {
+                            if (!el) return false;
+                            const r = el.getBoundingClientRect();
+                            const s = window.getComputedStyle(el);
+                            return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden' && parseFloat(s.opacity) > 0;
+                        };
+                        const recaptchaIframe = document.querySelector('iframe[src*="recaptcha"][src*="anchor"]');
+                        if (recaptchaIframe && isVisible(recaptchaIframe)) { result.found = true; result.type = 'recaptcha_v2'; result.isVisible = true; }
+                        const gRecaptcha = document.querySelector('.g-recaptcha');
+                        if (gRecaptcha && isVisible(gRecaptcha)) { const iframe = gRecaptcha.querySelector('iframe'); if (iframe && isVisible(iframe)) { result.found = true; result.type = 'recaptcha_v2'; result.isVisible = true; } }
+                        const hcaptchaIframe = document.querySelector('iframe[src*="hcaptcha"]');
+                        if (hcaptchaIframe && isVisible(hcaptchaIframe)) { result.found = true; result.type = 'hcaptcha'; result.isVisible = true; }
+                        const turnstileIframe = document.querySelector('iframe[src*="challenges.cloudflare"]');
+                        if (turnstileIframe && isVisible(turnstileIframe)) { result.found = true; result.type = 'turnstile'; result.isVisible = true; }
+                        return result;
+                    }
+                """)
+                if post_submit_captcha.get("found") and post_submit_captcha.get("isVisible"):
+                    captcha_type = post_submit_captcha.get("type", "unknown")
+                    slog.detail(f"   🔒 Lazy CAPTCHA appeared after submit ({captcha_type}) - attempting to solve...")
+                    captcha_result = await self._handle_captcha()
+                    if captcha_result.get("solved"):
+                        slog.detail_success("   ✅ CAPTCHA solved - re-submitting form...")
+                        submit_selector = self.state.active_form_submit_selector
+                        if submit_selector:
+                            try:
+                                url_before_resubmit = self.page.url
+                                submit_element = await self.page.wait_for_selector(submit_selector, timeout=3000)
+                                if submit_element and await submit_element.is_visible():
+                                    resubmit_info = await self._click_and_wait_for_submission(submit_element, url_before_resubmit)
+                                    self.state.submit_attempts += 1
+                                    self.state.submission_response = resubmit_info
+                                    if resubmit_info.get("response_received"):
+                                        slog.detail_success("   ✅ Re-submit captured POST response")
+                                    else:
+                                        slog.detail("   ⚠️ Re-submit: still no POST response")
+                            except Exception as e:
+                                slog.detail(f"   ⚠️ Re-submit failed: {str(e)[:60]}")
+                    else:
+                        slog.detail_warning("   ❌ Lazy CAPTCHA could not be solved - skipping page")
+                        return {
+                            "success": False,
+                            "fields_filled": list(self.state.fields_filled.keys()),
+                            "actions": [a.to_dict() for a in self.state.actions_taken],
+                            "errors": ["CAPTCHA could not be solved"],
+                            "skipped_reason": "captcha"
+                        }
+
             # Step 4: Verify submission with LLM (Phase 2)
             slog.detail("\n🔍 Verifying submission with LLM...")
 
@@ -1395,6 +1487,11 @@ class AIAgentOrchestrator:
                         "errors": ["Stop requested"],
                         "interrupted_by_stop": True
                     }
+
+                # Brief wait before observing — some forms (e.g. ConvertKit) show a success
+                # popup or confirmation overlay 200-500ms after the submit response.
+                if verification_round == 0:
+                    await asyncio.sleep(0.6)
 
                 # Get current page state for verification
                 final_page_state = await self._observe_page(use_vision=False, minimal=True)
@@ -1979,6 +2076,30 @@ class AIAgentOrchestrator:
 
             # For minimal mode (batch planning), skip expensive detection
             if minimal:
+                # Still run CAPTCHA detection even in minimal mode — a visible CAPTCHA
+                # must be handled before batch planning can proceed.
+                minimal_captcha = await self.page.evaluate("""
+                    () => {
+                        const result = { found: false, type: null, isVisible: false, hasVisibleCheckbox: false };
+                        const isVisible = (el) => {
+                            if (!el) return false;
+                            const r = el.getBoundingClientRect();
+                            const s = window.getComputedStyle(el);
+                            return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden' && parseFloat(s.opacity) > 0;
+                        };
+                        const recaptchaIframe = document.querySelector('iframe[src*="recaptcha"][src*="anchor"]');
+                        if (recaptchaIframe && isVisible(recaptchaIframe)) { result.found = true; result.type = 'recaptcha'; result.isVisible = true; result.hasVisibleCheckbox = true; }
+                        const gRecaptcha = document.querySelector('.g-recaptcha');
+                        if (gRecaptcha && isVisible(gRecaptcha)) { const iframe = gRecaptcha.querySelector('iframe'); if (iframe && isVisible(iframe)) { result.found = true; result.type = 'recaptcha'; result.isVisible = true; result.hasVisibleCheckbox = true; } }
+                        const hcaptchaIframe = document.querySelector('iframe[src*="hcaptcha"]');
+                        if (hcaptchaIframe && isVisible(hcaptchaIframe)) { result.found = true; result.type = 'hcaptcha'; result.isVisible = true; result.hasVisibleCheckbox = true; }
+                        const turnstileIframe = document.querySelector('iframe[src*="challenges.cloudflare"]');
+                        if (turnstileIframe && isVisible(turnstileIframe)) { result.found = true; result.type = 'turnstile'; result.isVisible = true; }
+                        const challengeIframe = document.querySelector('iframe[src*="recaptcha"][src*="bframe"]');
+                        if (challengeIframe && isVisible(challengeIframe)) { result.found = true; result.type = 'recaptcha_challenge'; result.isVisible = true; }
+                        return result;
+                    }
+                """)
                 return {
                     "url": self.page.url,
                     "screenshot": screenshot_base64,
@@ -1994,7 +2115,7 @@ class AIAgentOrchestrator:
                     "is_likely_login_page": False,
                     "login_indicators": {},
                     "form_count": len(page_info.get("forms", [])),
-                    "captcha_detected": {"found": False}
+                    "captcha_detected": minimal_captcha
                 }
             
             visible_text = await self.page.evaluate("""
@@ -3185,7 +3306,13 @@ class AIAgentOrchestrator:
                                     const overlayText = overlay.innerText?.toLowerCase() || '';
 
                                     // Skip if this looks like a success message - don't dismiss!
-                                    const successIndicators = ['thank you', 'success', 'confirmed', 'subscribed', 'welcome'];
+                                    // Includes double opt-in confirmations ("check your email to confirm")
+                                    const successIndicators = [
+                                        'thank you', 'success', 'confirmed', 'subscribed', 'welcome',
+                                        'check your email', 'check your inbox', 'confirm your email',
+                                        'confirm your subscription', 'almost there', 'you\'re in',
+                                        'you are in', 'verify your email'
+                                    ];
                                     if (successIndicators.some(s => overlayText.includes(s))) {
                                         return { found: true, isSuccess: true };
                                     }
@@ -3475,9 +3602,75 @@ class AIAgentOrchestrator:
             """)
             
             if not overlay_info.get("found"):
-                return {}
-            
-            slog.detail(f"   🔲 Detected overlay/modal popup")
+                # FALLBACK: Geometry-based popup detection.
+                # Many real-world popups (Privy, Klaviyo, Justuno, etc.) use custom class
+                # names that don't match the CSS selectors above. Detect them by visual
+                # geometry instead: fixed/absolute elements with high z-index that cover
+                # part of the viewport and contain a form with an email input.
+                overlay_info = await self.page.evaluate("""
+                    () => {
+                        const isVisible = (el) => {
+                            if (!el) return false;
+                            const s = window.getComputedStyle(el);
+                            return s.display !== 'none' && s.visibility !== 'hidden' && parseFloat(s.opacity) > 0.1;
+                        };
+                        const vw = window.innerWidth;
+                        const vh = window.innerHeight;
+
+                        for (const el of document.querySelectorAll('*')) {
+                            const s = window.getComputedStyle(el);
+                            if (s.position !== 'fixed' && s.position !== 'absolute') continue;
+                            if (!isVisible(el)) continue;
+                            const z = parseInt(s.zIndex) || 0;
+                            if (z < 10) continue;
+                            const r = el.getBoundingClientRect();
+                            if (r.width < vw * 0.2 || r.height < vh * 0.1) continue;
+                            if (r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) continue;
+
+                            const emailInput = el.querySelector(
+                                'input[type="email"], input[name*="email" i], input[placeholder*="email" i], input[id*="email" i]'
+                            );
+                            const submitBtn = el.querySelector(
+                                'button[type="submit"], input[type="submit"], button'
+                            );
+                            if (!emailInput || !submitBtn) continue;
+
+                            const text = (el.innerText || '').toLowerCase();
+                            const captchaIndicators = ['captcha', 'recaptcha', 'hcaptcha', 'turnstile', 'i am not a robot'];
+                            const hasCaptchaIframe = !!el.querySelector('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="challenges.cloudflare"]');
+                            const hasCaptcha = captchaIndicators.some(c => text.includes(c)) || hasCaptchaIframe;
+                            const successIndicators = ['thank you', 'thanks for', 'success', 'confirmed', 'subscribed', 'welcome', 'check your email'];
+                            const hasSuccessText = successIndicators.some(s => text.includes(s));
+
+                            let closeBtn = null;
+                            for (const sel of ['[class*="close"]', '[aria-label*="close" i]', '[data-formkit-close]', '.formkit-close']) {
+                                try { closeBtn = el.querySelector(sel); if (closeBtn) break; } catch(e) {}
+                            }
+
+                            return {
+                                found: true,
+                                selector: 'geometry-detected',
+                                hasIframe: !!el.querySelector('iframe'),
+                                iframeSrc: el.querySelector('iframe')?.src || '',
+                                hasCaptcha: hasCaptcha,
+                                hasError: false,
+                                hasSuccessText: hasSuccessText,
+                                hasRecommendation: false,
+                                hasFormInputs: true,
+                                hasCloseBtn: !!closeBtn,
+                                closeBtnSelector: closeBtn ? (closeBtn.id ? '#' + closeBtn.id : (closeBtn.className ? '.' + closeBtn.className.trim().split(/\s+/)[0] : '[aria-label*="close"]')) : null,
+                                text: text.substring(0, 500)
+                            };
+                        }
+                        return { found: false };
+                    }
+                """)
+                if not overlay_info.get("found"):
+                    return {}
+                slog.detail(f"   🔲 Detected popup via geometry (position:fixed/absolute + z-index + form)")
+
+            else:
+                slog.detail(f"   🔲 Detected overlay/modal popup")
             overlay_text = overlay_info.get('text', '')[:100]
             
             # CAPTCHA DETECTION - NOT success, need to skip this page
