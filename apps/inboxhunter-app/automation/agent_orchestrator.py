@@ -1272,25 +1272,55 @@ class AIAgentOrchestrator:
             slog.detail("📄 Getting page HTML for batch planning...")
             page_state = await self._observe_page(use_vision=False, minimal=True)
 
-            # Check for visible CAPTCHA before planning.
-            # The batch path sends HTML to the LLM which has no way to solve CAPTCHAs —
-            # it will produce a plan that skips the CAPTCHA widget and the form won't submit.
-            # Attempt to solve here first; if unsolvable, skip the page immediately.
+            # Check for CAPTCHA before planning.
+            # Strategy A: visible CAPTCHA iframe (detected by _observe_page minimal CAPTCHA eval).
+            # Strategy B: data-sitekey / .g-recaptcha present in page HTML — catches reCAPTCHA
+            #   containers that exist in the DOM before the reCAPTCHA JS renders the iframe,
+            #   and also catches cases where the iframe is inside a nested MailerLite iframe
+            #   that document.querySelector on the main page can't reach.
             captcha_info = page_state.get("captcha_detected", {})
+            html_has_captcha = False
+            if not captcha_info.get("found"):
+                html_has_captcha = await self.page.evaluate("""
+                    () => {
+                        // Only match div.g-recaptcha or div.h-captcha — the standard reCAPTCHA v2 / hCaptcha
+                        // visible container. Intentionally NOT matching buttons (reCAPTCHA v3 invisible)
+                        // or script-only integrations, which don't require user interaction.
+                        const rcDiv = document.querySelector('div.g-recaptcha[data-sitekey], div[class*="g-recaptcha"][data-sitekey]');
+                        const hcDiv = document.querySelector('div.h-captcha[data-sitekey]');
+                        return !!(rcDiv || hcDiv);
+                    }
+                """)
+                if html_has_captcha:
+                    captcha_info = {"found": True, "isVisible": True, "type": "recaptcha"}
+
             if captcha_info.get("found") and captcha_info.get("isVisible"):
                 captcha_type = captcha_info.get("type", "unknown")
-                slog.detail(f"   🔒 Visible CAPTCHA detected ({captcha_type}) - attempting to solve before planning...")
+                slog.detail(f"   🔒 CAPTCHA detected ({captcha_type}) - attempting to solve before planning...")
+                # If detected via div.g-recaptcha (pre-render), wait up to 4s for the
+                # reCAPTCHA JS to finish rendering the iframe so _handle_captcha can find it.
+                if html_has_captcha:
+                    try:
+                        await self.page.wait_for_selector(
+                            'iframe[src*="recaptcha"][src*="anchor"], iframe[src*="hcaptcha"]',
+                            timeout=4000
+                        )
+                    except Exception:
+                        pass  # reCAPTCHA iframe didn't render in time — _handle_captcha will still try
                 captcha_result = await self._handle_captcha()
                 if captcha_result.get("solved"):
                     slog.detail_success("   ✅ CAPTCHA solved - continuing with batch planning")
                     page_state = await self._observe_page(use_vision=False, minimal=True)
-                else:
+                elif captcha_result.get("skipped"):
+                    # CAPTCHA was found but could not be solved (no key, image challenge, etc.)
                     slog.detail_warning("   ⚠️ CAPTCHA could not be solved - skipping page")
                     return {
                         "success": False, "fields_filled": [], "actions": [],
                         "errors": ["CAPTCHA present and could not be solved automatically"],
                         "skipped_reason": "captcha"
                     }
+                # else: _handle_captcha returned {} (no visible CAPTCHA found after waiting)
+                # — reCAPTCHA may be behind a nested iframe; proceed and let lazy CAPTCHA check handle it
 
             # Build context for batch planning
             context = self._build_reasoning_context(page_state)
