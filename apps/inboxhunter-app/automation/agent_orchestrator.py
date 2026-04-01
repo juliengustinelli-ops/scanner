@@ -4379,8 +4379,13 @@ class AIAgentOrchestrator:
                 elif not isinstance(value_str, str):
                     value_str = str(value_str)
                 
-                await element.click()
-                await asyncio.sleep(0.3)
+                # Focus via JS instead of click — click-based focus fails when an overlay
+                # iframe (e.g. MailerLite content iframe) intercepts pointer events.
+                try:
+                    await element.evaluate("el => el.focus()")
+                except Exception:
+                    pass
+                await asyncio.sleep(0.1)
                 await element.fill(value_str)
                 await asyncio.sleep(0.5)
                 
