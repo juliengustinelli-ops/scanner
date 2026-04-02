@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI for Finance — LexAi</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Poppins', sans-serif; background: #f4f6f8; color: #0b0d19; line-height: 1.75; }
+
+  /* NAV */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    height: 84px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 2.5rem;
+    background: rgba(11,13,25,0.9);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+  .logo { font-size: 1.4rem; font-weight: 700; color: #fff; text-decoration: none; }
+  .logo span { color: #00c2b5; }
+  .nav-links { display: flex; gap: 2rem; list-style: none; }
+  .nav-links a { color: rgba(255,255,255,0.7); text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: color 0.2s; }
+  .nav-links a:hover, .nav-links a.active { color: #00c2b5; }
+  .nav-cta { background: #00c2b5; color: #fff; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 0.88rem; padding: 0.6rem 1.4rem; border-radius: 25px; border: none; cursor: pointer; text-decoration: none; transition: opacity 0.2s; }
+  .nav-cta:hover { opacity: 0.85; }
+
+  /* HERO */
+  .hero {
+    background: #0b0d19;
+    padding: 6rem 2rem 5rem;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-bg {
+    position: absolute; inset: 0;
+    background-image: url('https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1800&q=80');
+    background-size: cover;
+    background-position: center;
+    opacity: 0.12;
+    pointer-events: none;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(to bottom, rgba(11,13,25,0.55) 0%, rgba(11,13,25,0.92) 100%);
+    z-index: 1;
+    pointer-events: none;
+  }
+  .hero > *:not(.hero-bg) { position: relative; z-index: 2; }
+  .hero-eyebrow {
+    display: inline-block; background: rgba(0,194,181,0.12); color: #00c2b5;
+    font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 3px;
+    padding: 6px 20px; border-radius: 20px; border: 1px solid rgba(0,194,181,0.25);
+    margin-bottom: 1.6rem;
+  }
+  .hero h1 {
+    font-size: clamp(2.2rem, 5.5vw, 3.6rem); font-weight: 800; color: #fff;
+    line-height: 1.15; margin-bottom: 1.4rem; max-width: 820px; margin-left: auto; margin-right: auto;
+  }
+  .hero h1 em { color: #00c2b5; font-style: normal; }
+  .hero-sub {
+    font-size: 1.05rem; color: rgba(255,255,255,0.58); max-width: 580px;
+    margin: 0 auto 2.5rem; line-height: 1.8;
+  }
+  .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+  .btn-primary {
+    background: #00c2b5; color: #fff; font-family: 'Poppins', sans-serif;
+    font-weight: 700; font-size: 0.95rem; padding: 0.85rem 2rem;
+    border-radius: 30px; text-decoration: none; transition: opacity 0.2s;
+  }
+  .btn-primary:hover { opacity: 0.85; }
+  .btn-ghost {
+    background: transparent; color: rgba(255,255,255,0.75); font-family: 'Poppins', sans-serif;
+    font-weight: 600; font-size: 0.95rem; padding: 0.85rem 2rem;
+    border-radius: 30px; border: 1px solid rgba(255,255,255,0.2); text-decoration: none;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .btn-ghost:hover { border-color: #00c2b5; color: #00c2b5; }
+
+  /* TRUST BAR */
+  .trust-bar {
+    background: #0f1223;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding: 1.4rem 2rem;
+    display: flex; align-items: center; justify-content: center; gap: 2.5rem;
+    flex-wrap: wrap;
+  }
+  .trust-item { display: flex; align-items: center; gap: 0.55rem; color: rgba(255,255,255,0.45); font-size: 0.82rem; font-weight: 500; }
+  .trust-item svg { color: #00c2b5; flex-shrink: 0; }
+
+  /* SECTION COMMONS */
+  .section { padding: 5rem 2rem; }
+  .section.alt { background: #fff; }
+  .container { max-width: 1080px; margin: 0 auto; }
+  .section-label {
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 3px;
+    color: #00c2b5; margin-bottom: 0.8rem;
+  }
+  .section-title { font-size: clamp(1.7rem, 3.5vw, 2.5rem); font-weight: 700; color: #0b0d19; line-height: 1.2; margin-bottom: 1rem; }
+  .section-title em { color: #00c2b5; font-style: normal; }
+  .section-body { font-size: 1rem; color: #555; max-width: 620px; line-height: 1.85; }
+
+  /* POSITIONING CALLOUT */
+  .callout-strip {
+    background: #0b0d19;
+    border-radius: 18px;
+    padding: 3.5rem 3rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3rem;
+    align-items: center;
+    margin: 3rem 0;
+  }
+  @media (max-width: 700px) { .callout-strip { grid-template-columns: 1fr; } }
+  .callout-strip .left-text h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); font-weight: 700; color: #fff; line-height: 1.3; margin-bottom: 1rem; }
+  .callout-strip .left-text h2 em { color: #00c2b5; font-style: normal; }
+  .callout-strip .left-text p { color: rgba(255,255,255,0.6); font-size: 0.97rem; line-height: 1.8; }
+  .callout-right { display: flex; flex-direction: column; gap: 1.2rem; }
+  .compare-item { display: flex; gap: 1rem; align-items: flex-start; }
+  .compare-icon { width: 40px; height: 40px; border-radius: 10px; background: rgba(0,194,181,0.12); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+  .compare-icon svg { color: #00c2b5; }
+  .compare-text strong { display: block; color: #fff; font-size: 0.95rem; font-weight: 600; margin-bottom: 0.25rem; }
+  .compare-text span { color: rgba(255,255,255,0.5); font-size: 0.87rem; line-height: 1.6; }
+
+  /* SECTION IMAGE */
+  .section-img {
+    width: 100%; border-radius: 16px; overflow: hidden;
+    margin-top: 3rem; aspect-ratio: 16/7;
+    position: relative;
+  }
+  .section-img img {
+    width: 100%; height: 100%; object-fit: cover; object-position: center;
+    display: block;
+  }
+  .section-img-caption {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 1.5rem 2rem;
+    background: linear-gradient(to top, rgba(11,13,25,0.75) 0%, transparent 100%);
+    color: rgba(255,255,255,0.7); font-size: 0.82rem; font-style: italic;
+  }
+
+  /* FULL BLEED IMAGE BREAK */
+  .image-break {
+    width: 100%; aspect-ratio: 21/7; overflow: hidden; position: relative;
+  }
+  .image-break img { width: 100%; height: 100%; object-fit: cover; object-position: center 30%; display: block; }
+  .image-break-overlay {
+    position: absolute; inset: 0;
+    background: linear-gradient(to right, rgba(11,13,25,0.75) 0%, rgba(11,13,25,0.2) 60%, transparent 100%);
+    display: flex; align-items: center; padding: 3rem 4rem;
+  }
+  .image-break-quote {
+    max-width: 480px;
+    font-size: clamp(1.1rem, 2.5vw, 1.5rem); font-weight: 700; color: #fff; line-height: 1.4;
+  }
+  .image-break-quote em { color: #00c2b5; font-style: normal; }
+
+  /* HOW WE WORK STEPS */
+  .steps-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 3rem; }
+  @media (max-width: 800px) { .steps-grid { grid-template-columns: 1fr; } }
+  .step-card {
+    background: #fff;
+    border-radius: 14px;
+    border: 1px solid #e2e8f0;
+    padding: 2rem 1.8rem;
+    position: relative;
+    transition: box-shadow 0.2s, transform 0.2s;
+  }
+  .step-card:hover { box-shadow: 0 10px 30px rgba(0,0,0,0.08); transform: translateY(-3px); }
+  .step-num {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+    color: #00c2b5; margin-bottom: 0.8rem;
+  }
+  .step-card h3 { font-size: 1.1rem; font-weight: 700; color: #0b0d19; margin-bottom: 0.6rem; }
+  .step-card p { font-size: 0.9rem; color: #555; line-height: 1.75; }
+  .step-connector {
+    display: none;
+  }
+
+  /* SERVICES */
+  .services-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 3rem; }
+  @media (max-width: 900px) { .services-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 580px) { .services-grid { grid-template-columns: 1fr; } }
+  .service-card {
+    background: #fff;
+    border-radius: 14px;
+    border: 1px solid #e2e8f0;
+    border-top: 4px solid #00c2b5;
+    padding: 2rem 1.8rem;
+    transition: box-shadow 0.2s, transform 0.2s;
+  }
+  .service-card:hover { box-shadow: 0 10px 30px rgba(0,0,0,0.08); transform: translateY(-3px); }
+  .service-icon { width: 44px; height: 44px; border-radius: 12px; background: rgba(0,194,181,0.1); display: flex; align-items: center; justify-content: center; margin-bottom: 1.2rem; }
+  .service-icon svg { color: #00c2b5; }
+  .service-card h3 { font-size: 1.05rem; font-weight: 700; color: #0b0d19; margin-bottom: 0.6rem; }
+  .service-card p { font-size: 0.88rem; color: #555; line-height: 1.75; }
+  .service-bullets { list-style: none; margin-top: 1rem; display: flex; flex-direction: column; gap: 0.4rem; }
+  .service-bullets li { font-size: 0.84rem; color: #444; display: flex; align-items: flex-start; gap: 0.5rem; }
+  .service-bullets li::before { content: '—'; color: #00c2b5; font-weight: 700; flex-shrink: 0; }
+
+  /* USE CASES */
+  .use-cases-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-top: 2.5rem; }
+  @media (max-width: 680px) { .use-cases-grid { grid-template-columns: 1fr; } }
+  .uc-card {
+    background: #f4f6f8;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    padding: 1.6rem 1.5rem;
+    display: flex; gap: 1rem; align-items: flex-start;
+  }
+  .uc-dot { width: 8px; height: 8px; border-radius: 50%; background: #00c2b5; flex-shrink: 0; margin-top: 8px; }
+  .uc-card strong { display: block; font-size: 0.95rem; font-weight: 700; color: #0b0d19; margin-bottom: 0.3rem; }
+  .uc-card span { font-size: 0.86rem; color: #555; line-height: 1.7; }
+
+  /* TEAM */
+  .team-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 3rem; }
+  @media (max-width: 640px) { .team-grid { grid-template-columns: 1fr; } }
+  .team-card {
+    background: #fff;
+    border-radius: 16px;
+    border: 1px solid #e2e8f0;
+    padding: 0;
+    overflow: hidden;
+  }
+  .team-photo-wrap {
+    width: 100%; aspect-ratio: 4/3;
+    overflow: hidden;
+    background: #e2e8f0;
+  }
+  .team-avatar {
+    width: 100%; height: 100%;
+    object-fit: cover; object-position: center top;
+    display: block;
+  }
+  .team-body { padding: 1.8rem 2rem 2rem; }
+  .team-card .name { font-size: 1.15rem; font-weight: 700; color: #0b0d19; }
+  .team-card .role { font-size: 0.8rem; font-weight: 600; color: #00a89d; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 0.9rem; }
+  .team-card p { font-size: 0.9rem; color: #555; line-height: 1.8; }
+  .team-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 1.2rem; }
+  .team-tag { background: #f4f6f8; color: #444; font-size: 0.77rem; font-weight: 500; padding: 4px 12px; border-radius: 20px; border: 1px solid #e2e8f0; }
+  .team-tag.highlight { background: rgba(0,194,181,0.1); color: #00897f; border-color: rgba(0,194,181,0.3); font-weight: 600; }
+
+  /* CTA FOOTER */
+  .cta-section { background: #0b0d19; padding: 6rem 2rem; text-align: center; }
+  .cta-section h2 { font-size: clamp(1.8rem, 4vw, 2.8rem); font-weight: 700; color: #fff; margin-bottom: 1rem; line-height: 1.2; }
+  .cta-section h2 em { color: #00c2b5; font-style: normal; }
+  .cta-section p { color: rgba(255,255,255,0.55); font-size: 1rem; max-width: 500px; margin: 0 auto 2.5rem; line-height: 1.8; }
+  .cta-note { margin-top: 1.5rem; font-size: 0.84rem; color: rgba(255,255,255,0.35); }
+
+  /* FOOTER */
+  footer {
+    background: #070910; padding: 2rem 2.5rem;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .footer-logo { font-size: 1.1rem; font-weight: 700; color: rgba(255,255,255,0.5); text-decoration: none; }
+  .footer-logo span { color: #00c2b5; }
+  footer p { font-size: 0.8rem; color: rgba(255,255,255,0.25); }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="logo">Lex<span>Ai</span></a>
+  <ul class="nav-links">
+    <li><a href="#">Home</a></li>
+    <li><a href="#" class="active">Services</a></li>
+    <li><a href="#">GEO Audit</a></li>
+    <li><a href="#">Case Studies</a></li>
+  </ul>
+  <a href="#contact" class="nav-cta">Book a Discovery Call</a>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-eyebrow">AI for Financial Services</div>
+  <h1>AI that creates <em>edge,</em><br>not overhead.</h1>
+  <p class="hero-sub">
+    We work with hedge funds, investment banks, and PE firms to define the right problem first — then build and deploy the AI system that solves it.
+  </p>
+  <div class="hero-actions">
+    <a href="#contact" class="btn-primary">Book a Discovery Call</a>
+    <a href="#how-we-work" class="btn-ghost">See How We Work</a>
+  </div>
+</section>
+
+<!-- TRUST BAR -->
+<div class="trust-bar">
+  <div class="trust-item">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    Discovery-first methodology
+  </div>
+  <div class="trust-item">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    Built for regulated environments
+  </div>
+  <div class="trust-item">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    Working MVPs within days
+  </div>
+  <div class="trust-item">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    10+ years in startups & fintech
+  </div>
+</div>
+
+<!-- POSITIONING -->
+<section class="section alt">
+  <div class="container">
+    <div class="callout-strip">
+      <div class="left-text">
+        <h2>Think <em>McKinsey</em> meets <em>Palantir</em> — at a fraction of the cost.</h2>
+        <p>
+          Most consultants stop at strategy. Most dev shops skip the strategy. We do both — structured discovery to find the highest-leverage problems, then custom AI development to solve them.
+        </p>
+      </div>
+      <div class="callout-right">
+        <div class="compare-item">
+          <div class="compare-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </div>
+          <div class="compare-text">
+            <strong>Define (McKinsey)</strong>
+            <span>Structured discovery and workshops to surface your highest-value AI opportunities.</span>
+          </div>
+        </div>
+        <div class="compare-item">
+          <div class="compare-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <div class="compare-text">
+            <strong>Build (Palantir)</strong>
+            <span>Custom AI products and workflows deployed into your existing infrastructure.</span>
+          </div>
+        </div>
+        <div class="compare-item">
+          <div class="compare-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div class="compare-text">
+            <strong>Finance-native</strong>
+            <span>Deep discovery underway in hedge funds, IB, and PE — we understand the workflows that matter.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW WE WORK -->
+<section class="section" id="how-we-work">
+  <div class="container">
+    <div class="section-label">Our Process</div>
+    <h2 class="section-title">From ambiguous problem<br>to <em>deployed solution</em></h2>
+    <p class="section-body">
+      Financial firms rarely walk in with a clean spec. That's by design. We run a structured process that turns vague efficiency problems into working AI systems.
+    </p>
+    <div class="section-img">
+      <img src="https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=1600&q=80" alt="Discovery workshop with finance team">
+      <span class="section-img-caption">Discovery workshop — where the real problem gets defined.</span>
+    </div>
+
+    <div class="steps-grid">
+      <div class="step-card">
+        <div class="step-num">Step 01</div>
+        <h3>Discovery Workshop</h3>
+        <p>We sit down with your team to map existing workflows, identify bottlenecks, and surface the 2–3 problems where AI can drive the most measurable impact.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-num">Step 02</div>
+        <h3>Solution Design</h3>
+        <p>We evaluate tooling and vendor landscape, assess data readiness, and design a solution architecture tailored to your environment — no generic stack.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-num">Step 03</div>
+        <h3>Build & Deploy</h3>
+        <p>We ship. Often an MVP is in front of users within days. We integrate directly into your existing workflows and iterate until it drives the efficiency gains we scoped.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SERVICES -->
+<section class="section alt">
+  <div class="container">
+    <div class="section-label">What We Offer</div>
+    <h2 class="section-title">Three ways to work with us</h2>
+    <p class="section-body">
+      Whether you're exploring AI for the first time or have a clear use case and need execution capacity, we have an engagement model for you.
+    </p>
+    <div class="section-img" style="margin-top:2.5rem; margin-bottom:-0.5rem;">
+      <img src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1600&q=80" alt="Financial data analysis on laptop">
+      <span class="section-img-caption">From raw data to deployed AI — end-to-end.</span>
+    </div>
+
+    <div class="services-grid">
+      <div class="service-card">
+        <div class="service-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M2 20h20M6 20V10l6-6 6 6v10"/><path d="M10 20v-6h4v6"/></svg>
+        </div>
+        <h3>End-to-End AI Product Development</h3>
+        <p>From discovery through deployment — we partner with your team to identify where AI can drive revenue, reduce cost, or improve operational efficiency, then ship it.</p>
+        <ul class="service-bullets">
+          <li>Discovery workshops & opportunity mapping</li>
+          <li>Custom LLM-powered product development</li>
+          <li>Integration into existing workflows</li>
+          <li>Ongoing iteration post-launch</li>
+        </ul>
+      </div>
+      <div class="service-card">
+        <div class="service-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+        </div>
+        <h3>AI Integration & Enablement</h3>
+        <p>You have a clear use case but limited internal capacity. We design and deploy the solution — often placing a working MVP in front of your team within days.</p>
+        <ul class="service-bullets">
+          <li>Rapid solution scoping</li>
+          <li>Fast-track MVP delivery</li>
+          <li>Internal adoption enablement</li>
+          <li>Handoff documentation & training</li>
+        </ul>
+      </div>
+      <div class="service-card">
+        <div class="service-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+        </div>
+        <h3>Strategy & Advisory</h3>
+        <p>We advise leadership teams on how to thoughtfully integrate AI. We surface the most valuable use cases, evaluate vendors and tooling, and assess data readiness.</p>
+        <ul class="service-bullets">
+          <li>AI readiness assessment</li>
+          <li>Vendor & tooling evaluation</li>
+          <li>Use case prioritization framework</li>
+          <li>Board-ready AI strategy memo</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- IMAGE BREAK -->
+<div class="image-break">
+  <img src="https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=2000&q=80" alt="Finance data and analysis">
+  <div class="image-break-overlay">
+    <p class="image-break-quote">"Most firms have <em>ambiguous problems.</em><br>That's exactly where we start."</p>
+  </div>
+</div>
+
+<!-- USE CASES -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">Finance Use Cases</div>
+    <h2 class="section-title">Where AI moves the needle<br>in <em>financial services</em></h2>
+    <p class="section-body">
+      These are the problem categories we've observed in discovery conversations across hedge funds, investment banks, and PE firms.
+    </p>
+    <div class="use-cases-grid">
+      <div class="uc-card">
+        <div class="uc-dot"></div>
+        <div>
+          <strong>Deal & Research Intelligence</strong>
+          <span>LLM-powered systems that ingest earnings calls, 10-Ks, news feeds, and internal research to surface signals and automate memo drafting.</span>
+        </div>
+      </div>
+      <div class="uc-card">
+        <div class="uc-dot"></div>
+        <div>
+          <strong>Portfolio Monitoring Automation</strong>
+          <span>Automated portfolio company reporting — aggregating KPIs, flagging anomalies, and generating board-ready update summaries without manual intervention.</span>
+        </div>
+      </div>
+      <div class="uc-card">
+        <div class="uc-dot"></div>
+        <div>
+          <strong>Due Diligence Acceleration</strong>
+          <span>AI assistants that extract structured data from CIMs, cap tables, and financial models — cutting the time analysts spend on initial diligence from days to hours.</span>
+        </div>
+      </div>
+      <div class="uc-card">
+        <div class="uc-dot"></div>
+        <div>
+          <strong>Internal Knowledge & Compliance Q&A</strong>
+          <span>Secure, retrieval-augmented chat over internal policy docs, fund agreements, and regulatory guidance — so teams get accurate answers instantly.</span>
+        </div>
+      </div>
+      <div class="uc-card">
+        <div class="uc-dot"></div>
+        <div>
+          <strong>Client Reporting & Communication</strong>
+          <span>Automated LP update drafts and personalized investor communications generated from underlying data — reviewed and sent by your IR team.</span>
+        </div>
+      </div>
+      <div class="uc-card">
+        <div class="uc-dot"></div>
+        <div>
+          <strong>Workflow Automation for Back Office</strong>
+          <span>Eliminate repetitive ops work — reconciliation checks, data entry, and exception routing — so your team focuses on higher-value tasks.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TEAM -->
+<section class="section alt">
+  <div class="container">
+    <div class="section-label">The Team</div>
+    <h2 class="section-title">Builder-consultants with<br><em>skin in the game</em></h2>
+    <p class="section-body">
+      We're not a large firm with a junior team. You get direct access to the principals — two experienced operators who have shipped AI products and run discovery with financial firms.
+    </p>
+    <div class="team-grid">
+      <div class="team-card">
+        <div class="team-photo-wrap">
+          <img src="julien-headshot.jpg" alt="Julien Gustinelli" class="team-avatar">
+        </div>
+        <div class="team-body">
+          <div class="name">Julien Gustinelli</div>
+          <div class="role">Co-Founder &amp; AI Product Lead</div>
+          <p>Google Gemini Alumni and former Amazon operator. Defined and operationalized quality standards for consumer AI experiences at Google, influencing product direction across three major releases — Gemini 1.0, Advanced, and 2.0. Now building and deploying custom AI systems for B2B clients through LexAi.</p>
+          <div class="team-tags">
+            <span class="team-tag highlight">Google Gemini Alumni</span>
+            <span class="team-tag highlight">Amazon</span>
+            <span class="team-tag">AI Product Development</span>
+            <span class="team-tag">LLM Pipelines</span>
+            <span class="team-tag">Client Delivery</span>
+          </div>
+        </div>
+      </div>
+      <div class="team-card">
+        <div class="team-photo-wrap">
+          <img src="eric-park.png" alt="Eric Park" class="team-avatar">
+        </div>
+        <div class="team-body">
+          <div class="name">Eric Park</div>
+          <div class="role">Co-Founder &amp; Finance Vertical Lead</div>
+          <p>Harvard graduate and serial entrepreneur with 10 years of experience across startups and tech. Deeply immersed in the specific operational challenges of financial services — conducting ongoing discovery across hedge funds, investment banks, and PE firms to build AI solutions that fit how these teams actually work.</p>
+          <div class="team-tags">
+            <span class="team-tag highlight">Harvard</span>
+            <span class="team-tag">Hedge Funds</span>
+            <span class="team-tag">Investment Banking</span>
+            <span class="team-tag">PE</span>
+            <span class="team-tag">Discovery</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section" id="contact">
+  <div class="container">
+    <h2>Let's find your<br><em>highest-leverage AI opportunity.</em></h2>
+    <p>
+      A 30-minute conversation is enough to tell you whether AI can materially move the needle in your firm — and where.
+    </p>
+    <p class="cta-note" style="margin-bottom:1.5rem;">No pitch decks. No commitment. Just a focused conversation about your actual problems.</p>
+    <a href="mailto:julien@lexaib2b.com" class="btn-primary" style="font-size:1rem; padding:1rem 2.2rem;">Book a Discovery Call →</a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <a href="#" class="footer-logo">Lex<span>Ai</span></a>
+  <p>© 2026 LexAi. AI Product Development for Financial Services.</p>
+</footer>
+
+</body>
+</html>
