@@ -7,3 +7,28 @@ apps/inboxhunter-app/automation/tests/test_config.json
 
 # Claude temp files
 tmpclaude-*
+
+# Root-level working files (PDFs, reports, scripts, images — not part of codebase)
+/*.pdf
+/*.png
+/*.jpg
+/*.svg
+/*.xlsx
+/*.csv
+/*.html
+/*.js
+/*.py
+/*.bat
+/*.txt
+/*.json
+/*.md
+nul
+
+# Root-level working directories
+.playwright-mcp/
+linkedin-session/
+case-study-pdfs/
+invoice-images/
+cloud-base-solutions/
+upwork/
+memory/

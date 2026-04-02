@@ -92,10 +92,36 @@ APP_STORE_DOMAINS = [
 ]
 
 
+SOCIAL_MEDIA_DOMAINS = [
+    "facebook.com", "fb.com", "m.facebook.com",
+    "instagram.com", "www.instagram.com",
+    "twitter.com", "x.com", "t.co",
+    "linkedin.com", "lnkd.in",
+    "tiktok.com", "vm.tiktok.com",
+    "youtube.com", "youtu.be",
+    "pinterest.com", "pin.it",
+    "snapchat.com", "threads.net",
+]
+
+
+def is_social_media_url(url: str) -> Tuple[bool, str]:
+    """
+    Check if a URL is a social media platform (not processable for newsletter signup).
+
+    Returns:
+        Tuple of (is_social, domain_matched)
+    """
+    url_lower = url.lower()
+    for domain in SOCIAL_MEDIA_DOMAINS:
+        if domain in url_lower:
+            return (True, domain)
+    return (False, "")
+
+
 def is_app_store_url(url: str) -> Tuple[bool, str]:
     """
     Check if a URL is an app store or app download page.
-    
+
     Returns:
         Tuple of (is_app_store, domain_matched)
     """
@@ -523,7 +549,17 @@ class InboxHunterBot:
                     
                     // Get page text from ENTIRE page
                     result.pageTextSample = document.body.innerText.substring(0, 5000).toLowerCase();
-                    
+
+                    // === 404 / ERROR PAGE DETECTION ===
+                    // Detect dead pages early so fallback URLs can be tried without full analysis
+                    const errorPagePatterns = [
+                        '404', 'page not found', 'not found', "doesn't exist",
+                        "can't be found", "cannot be found", 'oops', 'error 404',
+                        'page missing', 'nothing here', 'went wrong', 'no longer exists'
+                    ];
+                    result.is404Page = errorPagePatterns.some(p => result.pageTextSample.includes(p))
+                        && result.pageTextSample.length < 3000; // error pages are short
+
                     // Count forms
                     result.formCount = document.querySelectorAll('form').length;
                     
@@ -750,6 +786,15 @@ class InboxHunterBot:
                 (analysis.get('hasLoginText') and not analysis.get('hasSignupText'))
             )
             
+            # === EARLY EXIT: 404 / error page ===
+            if analysis.get('is404Page') and analysis.get('formCount', 0) == 0:
+                slog.detail("   🚫 404/error page detected — skipping full analysis")
+                result.has_signup_form = False
+                result.is_blog_or_article = False
+                result.page_type = "error_404"
+                result.reason = "404 or error page with no forms"
+                return result
+
             # Check for newsletter/subscription forms (common case)
             has_newsletter_form = (
                 analysis.get('hasNewsletterText') and analysis.get('hasEmailInput')
@@ -1055,6 +1100,43 @@ class InboxHunterBot:
             ]
             result['has_newsletter_text'] = any(pattern in combined_text for pattern in newsletter_patterns)
             
+            # === NEWSLETTER EMBED PLATFORM DETECTION ===
+            # Many sites embed newsletter signups via iframes from email service providers.
+            # These are cross-origin so JS can't inspect their inputs — detect via iframe src.
+            newsletter_embed_domains = [
+                # ConvertKit / Kit.com
+                'app.convertkit.com', 'convertkit.com', 'app.kit.com', 'kit.com/forms',
+                # Beehiiv
+                'beehiiv.com',
+                # Substack
+                'substack.com',
+                # Mailchimp
+                'list-manage.com', 'mailchimp.com',
+                # AWeber
+                'aweber.com',
+                # ActiveCampaign
+                'activehosted.com', 'activecampaign.com',
+                # Drip
+                'getdrip.com', 'drip.com',
+                # Flodesk
+                'flodesk.com',
+                # Klaviyo
+                'klaviyo.com',
+                # GetResponse
+                'gr8.com', 'getresponse.com',
+                # Constant Contact
+                'constantcontact.com', 'mlsend.com',
+                # MailerLite
+                'mailerlite.com',
+                # Kajabi
+                'kajabi.com',
+                # Thinkific / others
+                'thinkific.com',
+            ]
+            result['has_newsletter_embed'] = any(domain in html_lower for domain in newsletter_embed_domains)
+            if result['has_newsletter_embed']:
+                slog.detail("   📧 Newsletter embed platform detected in page HTML")
+
             # === SUBMIT BUTTON DETECTION ===
             submit_patterns = [
                 'type="submit"', "type='submit'",
@@ -1064,7 +1146,7 @@ class InboxHunterBot:
                 'button.*submit', 'button.*sign',
             ]
             result['has_submit_button'] = any(pattern in html_lower for pattern in submit_patterns)
-            
+
             # === FORM PURPOSE DETECTION ===
             form_purposes = []
             
@@ -1113,6 +1195,12 @@ class InboxHunterBot:
             if result['has_email_field'] and form_count > 0 and result['has_submit_button']:
                 likely_signup = True
                 likelihood_reasons.append("form with email and submit")
+
+            # Newsletter embed platforms (ConvertKit, Beehiiv, etc.) — cross-origin iframes
+            # JS can't inspect them, but their presence in HTML src means there IS a signup form
+            if result.get('has_newsletter_embed'):
+                likely_signup = True
+                likelihood_reasons.append("newsletter embed platform (ConvertKit/Beehiiv/etc.)")
             
             # Check for specific signup form structures in HTML
             signup_form_patterns = [
@@ -1224,7 +1312,60 @@ class InboxHunterBot:
         
         slog.detail("   ❌ Could not find signup form after navigation attempts")
         return (False, None)
-    
+
+    async def _try_fallback_newsletter_urls(self, original_url: str) -> bool:
+        """
+        When the given URL has no newsletter form, try fallback locations on the same domain.
+
+        Strategy (in order):
+          1. Homepage — most sites have a footer/header newsletter subscribe widget
+          2. /subscribe — a common dedicated signup path
+          3. /join — another common pattern
+
+        Returns True if a signup form was found (page is already navigated there).
+        Returns False if none of the fallbacks worked.
+        """
+        from urllib.parse import urlparse
+
+        parsed = urlparse(original_url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+
+        fallback_paths = [
+            "",           # homepage
+            "/subscribe",
+            "/join",
+            "/newsletter-signup",
+            "/email",
+        ]
+
+        for path in fallback_paths:
+            if self._stop_check():
+                return False
+
+            fallback_url = base + path
+            # Don't retry the original URL itself
+            if fallback_url.rstrip("/") == original_url.rstrip("/"):
+                continue
+
+            slog.detail(f"   🔄 Trying fallback: {fallback_url}")
+            success = await self.browser.navigate(fallback_url)
+            if not success:
+                continue
+
+            # Quick social/app-store guard on the fallback page too
+            current = self.browser.page.url
+            if is_social_media_url(current)[0] or is_app_store_url(current)[0]:
+                slog.detail(f"   ⛔ Fallback redirected to unwanted page: {current[:60]}")
+                continue
+
+            analysis = await self._analyze_page()
+            if analysis.has_signup_form or analysis.signup_behind_button:
+                slog.detail(f"   ✅ Found signup form at fallback: {fallback_url}")
+                return True
+
+        slog.detail("   ❌ No signup form found at any fallback URL")
+        return False
+
     async def _process_url(self, url: str, source: str) -> bool:
         """
         Process a single URL (navigate, analyze, fill form, submit).
@@ -1270,7 +1411,7 @@ class InboxHunterBot:
                                    details=f"Could not load page - {error_reason}")
                 return False
             
-            # Check if the initial URL redirected to an app store
+            # Check if the initial URL redirected to an app store or social media
             current_url = self.browser.page.url
             is_app_store, matched_domain = is_app_store_url(current_url)
             if is_app_store:
@@ -1282,7 +1423,18 @@ class InboxHunterBot:
                                    error_category="app_store",
                                    details="URL leads directly to app download page")
                 return False
-            
+
+            is_social, social_domain = is_social_media_url(current_url)
+            if is_social:
+                slog.url_skipped(f"Social media page ({social_domain})")
+                self.stats.setdefault("pages_skipped_social", 0)
+                self.stats["pages_skipped_social"] += 1
+                self._record_result(url, source, "skipped", [],
+                                   error_message=f"Social media redirect: {social_domain}",
+                                   error_category="social_media",
+                                   details="URL redirected to social media platform — no signup form")
+                return False
+
             # BATCH MODE: Skip slow pre-analysis, let LLM detect forms from screenshot + HTML
             if self.config.settings.batch_planning:
                 slog.detail("⚡ Batch mode: Skipping pre-analysis (LLM will detect forms)")
@@ -1347,14 +1499,21 @@ class InboxHunterBot:
                                            error_category="no_form")
                         return False
             
-            # Skip if no signup form and not behind a button
+            # Skip if no signup form and not behind a button — but try fallback URLs first
             if not analysis.has_signup_form and not analysis.signup_behind_button:
-                logger.warning(f"⏭️ Skipping page - NO SIGNUP FORM: {analysis.reason}")
-                self.stats["pages_skipped_no_form"] += 1
-                self._record_result(url, source, "skipped", [], 
-                                   error_message=f"No signup form: {analysis.reason}",
-                                   error_category="no_form")
-                return False
+                slog.detail("🔍 No form at given URL — trying fallback newsletter locations on same domain...")
+                found_via_fallback = await self._try_fallback_newsletter_urls(url)
+                if found_via_fallback:
+                    # Page is now at the fallback URL — re-run analysis to get updated state
+                    analysis = await self._analyze_page()
+                else:
+                    logger.warning(f"⏭️ Skipping — no signup form found anywhere on domain: {analysis.reason}")
+                    self.stats["pages_skipped_no_form"] += 1
+                    self._record_result(url, source, "skipped",
+                                       [],
+                                       error_message=f"No signup form: {analysis.reason}",
+                                       error_category="no_form")
+                    return False
             
             # Create AI Agent - pass the local page analysis to prevent LLM from contradicting it
             credentials = {

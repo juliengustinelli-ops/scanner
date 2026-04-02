@@ -1270,7 +1270,34 @@ class AIAgentOrchestrator:
 
             # Step 1: Get page HTML (no screenshot needed - LLM reads HTML directly)
             slog.detail("📄 Getting page HTML for batch planning...")
+            # Wait up to 5s for reCAPTCHA to become VISIBLE before observing.
+            # wait_for_selector default state='attached' returns as soon as the iframe
+            # is in the DOM — but the iframe has width/height 0 until it finishes
+            # rendering. state='visible' waits for non-zero dimensions.
+            try:
+                await self.page.wait_for_selector(
+                    'iframe[src*="recaptcha"][src*="anchor"], div.g-recaptcha[data-sitekey], div.h-captcha[data-sitekey]',
+                    state='visible',
+                    timeout=5000
+                )
+            except Exception:
+                pass  # No CAPTCHA present — proceed normally
             page_state = await self._observe_page(use_vision=False, minimal=True)
+
+            # NEWSLETTER EMBED: If no forms found but an embedded newsletter iframe was detected
+            # (Beehiiv, ConvertKit, Substack, etc.), navigate directly to the embed URL.
+            # These cross-origin iframes can't be inspected from the parent page, but the embed
+            # URL itself usually has a standalone form we can fill normally.
+            embed_url = page_state.get("newsletter_embed_url", "")
+            if embed_url and not page_state.get("forms") and not page_state.get("inputs"):
+                slog.detail(f"   📧 Newsletter embed iframe detected, navigating to: {embed_url[:80]}")
+                try:
+                    nav_ok = await self.page.goto(embed_url, wait_until="domcontentloaded", timeout=15000)
+                    await asyncio.sleep(1.5)  # Let JS hydrate
+                    page_state = await self._observe_page(use_vision=False, minimal=True)
+                    slog.detail(f"   ✅ Now on embed page: {self.page.url[:60]}")
+                except Exception as embed_nav_err:
+                    slog.detail(f"   ⚠️ Could not navigate to embed URL: {embed_nav_err}")
 
             # Check for CAPTCHA before planning.
             # Strategy A: visible CAPTCHA iframe (detected by _observe_page minimal CAPTCHA eval).
@@ -1283,12 +1310,18 @@ class AIAgentOrchestrator:
             if not captcha_info.get("found"):
                 html_has_captcha = await self.page.evaluate("""
                     () => {
-                        // Only match div.g-recaptcha or div.h-captcha — the standard reCAPTCHA v2 / hCaptcha
-                        // visible container. Intentionally NOT matching buttons (reCAPTCHA v3 invisible)
-                        // or script-only integrations, which don't require user interaction.
+                        // Strategy B: div.g-recaptcha or div.h-captcha container
                         const rcDiv = document.querySelector('div.g-recaptcha[data-sitekey], div[class*="g-recaptcha"][data-sitekey]');
                         const hcDiv = document.querySelector('div.h-captcha[data-sitekey]');
-                        return !!(rcDiv || hcDiv);
+                        if (rcDiv || hcDiv) return true;
+                        // Strategy C: g-recaptcha-response hidden textarea — ALWAYS present when
+                        // MailerLite uses reCAPTCHA, even before the widget iframe renders.
+                        const hiddenEl = document.querySelector('textarea[name="g-recaptcha-response"], input[name="g-recaptcha-response"]');
+                        if (hiddenEl) {
+                            const sk = document.querySelector('[data-sitekey]');
+                            return !!sk;
+                        }
+                        return false;
                     }
                 """)
                 if html_has_captcha:
@@ -1426,6 +1459,8 @@ class AIAgentOrchestrator:
             submit_attempted = self.state.form_submitted
             no_post_received = not (self.state.submission_response or {}).get("response_received", False)
             if submit_attempted and no_post_received and not self.state.captcha_solved:
+                # Wait for reCAPTCHA to render — it injects its iframe asynchronously after Submit click
+                await asyncio.sleep(1.5)
                 post_submit_captcha = await self.page.evaluate("""
                     () => {
                         const result = { found: false, type: null, isVisible: false };
@@ -1562,12 +1597,21 @@ class AIAgentOrchestrator:
                 next_actions = verification_result.get("next_actions", [])
                 error_indicators = verification_result.get("error_indicators", [])
 
-                # OVERRIDE: If we have strong network success (HTTP 200/201/204 + navigation) but LLM is unsure,
-                # treat as success unless there are clear error messages
-                if network_success and navigation_occurred and status in ["validation_error", "failed", "needs_more_actions"]:
+                # OVERRIDE: If we have strong network success (HTTP 200/201/204 + navigation OR + confirmation
+                # indicators found in DOM) but LLM is unsure, treat as success unless there are clear errors.
+                # barre3-type forms: POST 201 + 2 DOM confirmation indicators but no page navigation.
+                # Only trust confirmation override for unambiguous success codes (201/204).
+                # POST 200 is too generic — search forms, Shopify pages etc. all return 200.
+                proof_has_confirmation = bool(
+                    self.state.submission_proof and
+                    submission_response.get("response_status") in [201, 204]
+                )
+                slog.detail(f"   🔍 Override check: network_success={network_success}, nav={navigation_occurred}, proof_conf={proof_has_confirmation}, status={status}, resp_status={submission_response.get('response_status')}, has_proof={bool(self.state.submission_proof)}")
+                if network_success and (navigation_occurred or proof_has_confirmation) and status in ["validation_error", "failed", "needs_more_actions"]:
                     # Check if there are any real error indicators
                     has_real_errors = any(
-                        "invalid" in err.lower() or "required" in err.lower() or "error" in err.lower()
+                        "invalid" in err.lower() or "required" in err.lower() or
+                        "already subscribed" in err.lower() or "already exists" in err.lower()
                         for err in error_indicators
                     )
                     if not has_real_errors:
@@ -2138,6 +2182,7 @@ class AIAgentOrchestrator:
                     "buttons": page_info.get("buttons", []),
                     "visible_text": page_info.get("visibleText", "")[:500],
                     "simplified_html": page_info.get("simplifiedHtml", ""),
+                    "newsletter_embed_url": page_info.get("newsletterEmbedUrl", ""),
                     "has_success_indicator": False,
                     "has_error_messages": False,
                     "error_messages": [],
@@ -2329,6 +2374,7 @@ class AIAgentOrchestrator:
                 "buttons": page_info.get("buttons", []),
                 "visible_text": visible_text,
                 "simplified_html": page_info.get("simplifiedHtml", ""),
+                "newsletter_embed_url": page_info.get("newsletterEmbedUrl", ""),
                 "has_success_indicator": success_detection["is_success"],
                 "success_reason": success_detection.get("reason", ""),
                 "has_error_messages": len(error_messages) > 0,
@@ -3307,6 +3353,32 @@ class AIAgentOrchestrator:
             # Check for blocking overlay using comprehensive selectors
             overlay_info = await self.page.evaluate("""
                 () => {
+                    // FORCE DISMISS: Known marketing popup providers that always overlay page content.
+                    // These block interaction with the main form so we hide them unconditionally.
+                    const forceSelectors = [
+                        '[class*="kl-private-reset-css"]',   // Klaviyo
+                        '[id^="alia-root"]',                  // Alia
+                        '.lp-popup__iframe-wrapper',          // LeadPages
+                        '#hs-interactives-modal-overlay',     // HubSpot modal overlay
+                        '[id*="hs-interactives-modal"]',      // HubSpot modal (any variant)
+                        '[class*="fb_lightbox-overlay"]',     // Privy / Facebook lightbox overlays
+                        '.sqs-slide-layer',                   // Squarespace slide popup
+                        '.yui-popup-container-node',          // Squarespace/YUI popup
+                        '[class*="sqs-popup"]',               // Squarespace popup (any variant)
+                    ];
+                    for (const sel of forceSelectors) {
+                        try {
+                            const el = document.querySelector(sel);
+                            if (el) {
+                                const style = window.getComputedStyle(el);
+                                if (style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity || '1') > 0) {
+                                    el.style.setProperty('display', 'none', 'important');
+                                    return { found: true, isForced: true, overlaySelector: sel };
+                                }
+                            }
+                        } catch(e) {}
+                    }
+
                     // Comprehensive overlay selectors - including 'shown' pattern
                     const overlaySelectors = [
                         '[class*="overlay"][class*="shown"]',
@@ -3403,6 +3475,11 @@ class AIAgentOrchestrator:
 
             if not overlay_info.get("found"):
                 return False
+
+            # Force-dismissed known marketing popups (Klaviyo, Alia, LeadPages) via JS display:none
+            if overlay_info.get("isForced"):
+                slog.detail(f"   🔲 Force-dismissed popup: {overlay_info.get('overlaySelector', 'unknown')}")
+                return True
 
             # Don't dismiss success overlays
             if overlay_info.get("isSuccess"):
@@ -3889,11 +3966,29 @@ class AIAgentOrchestrator:
                         result.isVisible = true;
                         result.type = 'recaptcha_challenge';
                     }
-                    
+
+                    // Fallback: g-recaptcha-response hidden textarea is ALWAYS present when
+                    // MailerLite/reCAPTCHA is configured — even before the widget renders.
+                    // If we have a sitekey, we can solve via 2captcha without needing the
+                    // visible checkbox iframe.
+                    if (!result.found) {
+                        const hiddenEl = document.querySelector('textarea[name="g-recaptcha-response"], input[name="g-recaptcha-response"]');
+                        if (hiddenEl) {
+                            const sitekeyEl = document.querySelector('[data-sitekey]');
+                            const sk = sitekeyEl ? sitekeyEl.getAttribute('data-sitekey') : null;
+                            if (sk) {
+                                result.found = true;
+                                result.isVisible = true;
+                                result.type = 'recaptcha_v2';
+                                result.sitekey = sk;
+                            }
+                        }
+                    }
+
                     return result;
                 }
             """)
-            
+
             # Only proceed if captcha is found AND visible
             if not captcha_info.get("found") or not captcha_info.get("isVisible"):
                 if captcha_info.get("found") and not captcha_info.get("isVisible"):
@@ -4151,6 +4246,15 @@ class AIAgentOrchestrator:
             if not action.selector or not action.value:
                 return {"success": False, "error": "Missing selector or value"}
 
+            # PRE-FILL: Dismiss any blocking overlays so label.click() / element.check()
+            # don't time out when a Klaviyo/HubSpot/Squarespace popup is covering the page.
+            # JS-first fill (element.evaluate) is unaffected by overlays, but checkbox
+            # strategies that use real DOM clicks still need the page unblocked.
+            try:
+                await self._dismiss_blocking_overlay_before_click()
+            except Exception:
+                pass
+
             # BLOCKLIST CHECK: Immediately reject selectors we know don't exist
             if action.selector in self.state.non_existent_selectors:
                 logger.debug(f"   🚫 Rejecting blocklisted selector: {action.selector[:40]}")
@@ -4379,14 +4483,32 @@ class AIAgentOrchestrator:
                 elif not isinstance(value_str, str):
                     value_str = str(value_str)
                 
-                # Focus via JS instead of click — click-based focus fails when an overlay
-                # iframe (e.g. MailerLite content iframe) intercepts pointer events.
+                # PRIMARY: fill via JS native setter — zero Playwright actionability checks,
+                # no internal click, works even when an overlay iframe (HubSpot, Privy,
+                # Klaviyo) intercepts pointer events. Also triggers React/Vue/Webflow
+                # synthetic events so framework state stays in sync.
+                await element.evaluate(
+                    """(el, v) => {
+                        el.focus();
+                        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+                            || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                        if (nativeSetter) { nativeSetter.call(el, v); }
+                        else { el.value = v; }
+                        el.dispatchEvent(new InputEvent('input', {bubbles: true, data: v, inputType: 'insertText'}));
+                        el.dispatchEvent(new Event('change', {bubbles: true}));
+                        el.dispatchEvent(new Event('blur', {bubbles: true}));
+                    }""",
+                    value_str
+                )
+                # Always dispatch events after fill to sync React/Vue/Webflow state
                 try:
-                    await element.evaluate("el => el.focus()")
+                    await element.evaluate("""el => {
+                        el.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertText'}));
+                        el.dispatchEvent(new Event('change', {bubbles: true}));
+                        el.dispatchEvent(new Event('blur', {bubbles: true}));
+                    }""")
                 except Exception:
                     pass
-                await asyncio.sleep(0.1)
-                await element.fill(value_str)
                 await asyncio.sleep(0.5)
                 
                 filled_value = await element.input_value()
@@ -4463,6 +4585,7 @@ class AIAgentOrchestrator:
         Strategy: Set up event listeners BEFORE clicking, then click and wait for
         network idle (which fires when all network activity stops, not after a fixed time).
         """
+        slog.detail_warning("   ⚠️ _click_and_wait_for_submission ENTERED")
         submission_info = {
             "response_received": False,
             "response_status": None,
@@ -4483,9 +4606,66 @@ class AIAgentOrchestrator:
         self.page.on("response", on_response)
 
         try:
-            # Click the element
+            # Before clicking submit:
+            # 1. Dismiss any visible popup
+            # 2. Click the reCAPTCHA "I'm not a robot" checkbox via frame_locator
+            # 3. Try 2captcha token injection as well
+
+            # Step 1: Dismiss popup
+            try:
+                for sel in ['button[class*="close"]', '[aria-label*="close" i]', '[aria-label*="dismiss" i]',
+                            '[data-dismiss]', '[class*="modal-close"]', '.popup-close', '.ml-closeModal']:
+                    btn = await self.page.query_selector(sel)
+                    if btn and await btn.is_visible():
+                        await btn.evaluate("el => el.click()")
+                        slog.detail(f"   ✅ Dismissed popup ({sel})")
+                        await asyncio.sleep(0.5)
+                        break
+            except Exception:
+                pass
+
+            # Step 2: Click reCAPTCHA checkbox using frame_locator (bypasses overlay iframes)
+            if not self.state.captcha_solved:
+                try:
+                    rc_frame = self.page.frame_locator('iframe[src*="recaptcha"][src*="anchor"]')
+                    checkbox = rc_frame.locator('#recaptcha-anchor')
+                    count = await checkbox.count()
+                    if count > 0:
+                        slog.detail_warning("   ⚠️ reCAPTCHA checkbox found — clicking now...")
+                        await checkbox.click(timeout=4000)
+                        slog.detail_success("   ✅ Clicked reCAPTCHA checkbox")
+                        await asyncio.sleep(3.0)
+                    else:
+                        slog.detail_warning("   ⚠️ reCAPTCHA iframe not found via frame_locator (count=0)")
+                except Exception as e:
+                    slog.detail_warning(f"   ⚠️ reCAPTCHA checkbox error: {str(e)[:80]}")
+
+            # Step 3: 2captcha token injection
+            if not self.state.captcha_solved:
+                try:
+                    sitekey = await self.page.evaluate(
+                        "() => { const sk = document.querySelector('[data-sitekey]'); return sk ? sk.getAttribute('data-sitekey') : null; }"
+                    )
+                    if sitekey and self.captcha_api_key:
+                        slog.detail_warning(f"   ⚠️ Solving via 2captcha key={self.captcha_api_key[:8]} sitekey={sitekey[:20]}")
+                        solved = await self._solve_with_2captcha('recaptcha_v2', sitekey)
+                        if solved:
+                            self.state.captcha_solved = True
+                            slog.detail_success("   ✅ reCAPTCHA solved via 2captcha")
+                    elif sitekey and not self.captcha_api_key:
+                        slog.detail_warning("   ⚠️ reCAPTCHA sitekey found but captcha_api_key is EMPTY")
+                    elif not sitekey:
+                        slog.detail_warning("   ⚠️ No [data-sitekey] found on page")
+                except Exception as e:
+                    slog.detail_warning(f"   ⚠️ 2captcha step error: {str(e)[:80]}")
+
+            # Click the element — use JS click to bypass overlay iframes (e.g. MailerLite BbgfTz/content)
+            # that intercept pointer events and block Playwright's simulated mouse click.
             slog.detail("   🖱️ Clicking submit button...")
-            await element.click()
+            try:
+                await element.evaluate("el => el.click()")
+            except Exception:
+                await element.click(timeout=5000)
 
             # Wait for network idle - this is EVENT-BASED
             # It fires when there are no network connections for 500ms (Playwright's definition)

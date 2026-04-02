@@ -133,16 +133,46 @@ class LLMPageAnalyzer:
                     if (cleanHtml.children.length === 0) {
                         const container = document.createElement('div');
                         container.id = 'extracted-elements';
-                        
+
                         document.querySelectorAll('input:not([type="hidden"]), textarea, button').forEach(elem => {
                             if (isVisible(elem)) {
                                 container.appendChild(elem.cloneNode(true));
                             }
                         });
-                        
+
                         cleanHtml.appendChild(container);
                     }
-                    
+
+                    // NEWSLETTER EMBED DETECTION: If no visible form was found, check for
+                    // cross-origin newsletter iframes (Beehiiv, ConvertKit, Substack, etc.).
+                    // These iframes load the actual form — if found, add a comment to the HTML
+                    // so the LLM knows to navigate there instead of looking for local inputs.
+                    if (cleanHtml.children.length === 0 || cleanHtml.innerHTML.trim().length < 50) {
+                        const newsletterDomains = [
+                            'beehiiv.com', 'embeds.beehiiv.com',
+                            'app.convertkit.com', 'app.kit.com',
+                            'substack.com',
+                            'mailchimp.com', 'list-manage.com',
+                            'flodesk.com',
+                            'klaviyo.com',
+                            'mailerlite.com',
+                            'activehosted.com',
+                        ];
+                        const iframes = document.querySelectorAll('iframe[src]');
+                        for (const iframe of iframes) {
+                            const src = iframe.getAttribute('src') || '';
+                            if (newsletterDomains.some(d => src.includes(d))) {
+                                result.newsletterEmbedUrl = src;
+                                const notice = document.createElement('div');
+                                notice.setAttribute('data-newsletter-embed', 'true');
+                                notice.setAttribute('data-embed-url', src);
+                                notice.textContent = `NEWSLETTER_EMBED_IFRAME: ${src}`;
+                                cleanHtml.appendChild(notice);
+                                break;
+                            }
+                        }
+                    }
+
                     result.simplifiedHtml = cleanHtml.innerHTML.substring(0, 5000);
                     
                     // Find all forms WITH their submit buttons
