@@ -82,6 +82,7 @@ class AgentState:
         self.non_existent_selectors: set = set()  # Blocklist of selectors that were proven to not exist
         # Proof of submission
         self.submission_proof: Dict[str, Any] = {}  # Screenshot, confirmation messages, network data
+        self.submission_response: Dict[str, Any] = {}  # Last submission network response info
         # NEW: Track popup/modal that contains the signup form
         self.popup_has_form: bool = False  # True when a visible popup IS the signup form
     
@@ -1270,6 +1271,16 @@ class AIAgentOrchestrator:
 
             # Step 1: Get page HTML (no screenshot needed - LLM reads HTML directly)
             slog.detail("📄 Getting page HTML for batch planning...")
+            # Scroll to bottom to trigger lazy-loaded newsletter sections (Shopify themes,
+            # Squarespace, etc. often defer footer/section forms until in-viewport).
+            # Then scroll back to top so any sticky popup forms remain visible.
+            try:
+                await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await asyncio.sleep(1.0)
+                await self.page.evaluate("window.scrollTo(0, 0)")
+                await asyncio.sleep(0.5)
+            except Exception:
+                pass
             # Wait up to 5s for reCAPTCHA to become VISIBLE before observing.
             # wait_for_selector default state='attached' returns as soon as the iframe
             # is in the DOM — but the iframe has width/height 0 until it finishes
@@ -1600,11 +1611,13 @@ class AIAgentOrchestrator:
                 # OVERRIDE: If we have strong network success (HTTP 200/201/204 + navigation OR + confirmation
                 # indicators found in DOM) but LLM is unsure, treat as success unless there are clear errors.
                 # barre3-type forms: POST 201 + 2 DOM confirmation indicators but no page navigation.
-                # Only trust confirmation override for unambiguous success codes (201/204).
-                # POST 200 is too generic — search forms, Shopify pages etc. all return 200.
+                # POST 200 with DOM confirmation indicators (e.g. startingstrength/Brevo forms) also trusted.
                 proof_has_confirmation = bool(
-                    self.state.submission_proof and
-                    submission_response.get("response_status") in [201, 204]
+                    self.state.submission_proof and (
+                        submission_response.get("response_status") in [201, 204] or
+                        (submission_response.get("response_status") == 200 and
+                         self.state.submission_proof.get("confirmation_data"))
+                    )
                 )
                 slog.detail(f"   🔍 Override check: network_success={network_success}, nav={navigation_occurred}, proof_conf={proof_has_confirmation}, status={status}, resp_status={submission_response.get('response_status')}, has_proof={bool(self.state.submission_proof)}")
                 if network_success and (navigation_occurred or proof_has_confirmation) and status in ["validation_error", "failed", "needs_more_actions"]:
@@ -4157,38 +4170,52 @@ class AIAgentOrchestrator:
         """Inject solved captcha token into the page."""
         try:
             if captcha_type in ["recaptcha_v2", "recaptcha_v3", "recaptcha_enterprise"]:
-                # Inject reCAPTCHA token
+                # Inject reCAPTCHA token and fire the site's callback
                 await self.page.evaluate(f"""
                     (token) => {{
-                        // Set the response in hidden textarea
-                        const responseField = document.querySelector('#g-recaptcha-response, [name="g-recaptcha-response"]');
-                        if (responseField) {{
-                            responseField.value = token;
-                            responseField.innerHTML = token;
-                        }}
-                        
-                        // Also try to trigger the callback if it exists
-                        if (typeof grecaptcha !== 'undefined' && grecaptcha.getResponse) {{
-                            // For reCAPTCHA v2, try to set the response
-                            try {{
-                                const iframe = document.querySelector('iframe[src*="recaptcha"]');
-                                if (iframe) {{
-                                    iframe.style.display = 'none';
-                                }}
-                            }} catch(e) {{}}
-                        }}
-                        
-                        // Look for callback functions
-                        const callbacks = ['onCaptchaSuccess', 'captchaCallback', 'recaptchaCallback'];
-                        for (const cb of callbacks) {{
-                            if (typeof window[cb] === 'function') {{
-                                window[cb](token);
+                        // 1. Set the response in the hidden textarea(s)
+                        document.querySelectorAll('#g-recaptcha-response, [name="g-recaptcha-response"]').forEach(el => {{
+                            el.value = token;
+                            el.innerHTML = token;
+                            el.dispatchEvent(new Event('change', {{bubbles: true}}));
+                        }});
+
+                        // 2. Fire data-callback from the .g-recaptcha div (reCAPTCHA v2 visible checkbox)
+                        // This is what actually tells the site the captcha is solved
+                        const rcDiv = document.querySelector('.g-recaptcha[data-callback], [data-callback]');
+                        if (rcDiv) {{
+                            const cbName = rcDiv.getAttribute('data-callback');
+                            if (cbName && typeof window[cbName] === 'function') {{
+                                try {{ window[cbName](token); }} catch(e) {{}}
                             }}
                         }}
+
+                        // 3. Try grecaptcha internal callback registry
+                        try {{
+                            if (typeof ___grecaptcha_cfg !== 'undefined') {{
+                                const clients = ___grecaptcha_cfg.clients;
+                                if (clients) {{
+                                    Object.values(clients).forEach(client => {{
+                                        Object.values(client).forEach(widget => {{
+                                            if (widget && typeof widget.callback === 'function') {{
+                                                try {{ widget.callback(token); }} catch(e) {{}}
+                                            }}
+                                        }});
+                                    }});
+                                }}
+                            }}
+                        }} catch(e) {{}}
+
+                        // 4. Well-known named callbacks
+                        ['onCaptchaSuccess', 'captchaCallback', 'recaptchaCallback', 'verifyCallback'].forEach(cb => {{
+                            if (typeof window[cb] === 'function') {{
+                                try {{ window[cb](token); }} catch(e) {{}}
+                            }}
+                        }});
                     }}
                 """, token)
-                
-                slog.detail("   ✅ reCAPTCHA token injected")
+
+                slog.detail("   ✅ reCAPTCHA token injected + callback fired")
                 return True
                 
             elif captcha_type == "hcaptcha":
