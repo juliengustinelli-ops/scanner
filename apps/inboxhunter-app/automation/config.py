@@ -70,6 +70,7 @@ class Settings(BaseModel):
     batch_planning: bool = Field(default=True, alias="batchPlanning")  # Batch planning is now the default (faster execution)
     auto_switch_to_database: bool = Field(default=True, alias="autoSwitchToDatabase")  # Auto-switch to database mode after Meta Ads scrape
     country: str = Field(default="US", alias="country")  # Country code for Meta Ads Library search
+    db_path: str = Field(default="", alias="dbPath")  # Optional override for database path (debug/testing)
 
     @field_validator('ad_limit')
     @classmethod

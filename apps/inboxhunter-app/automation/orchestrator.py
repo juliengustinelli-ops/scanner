@@ -157,10 +157,13 @@ class InboxHunterBot:
         self.detailed_logs = detailed_logs or legacy_debug
         slog.set_detailed(self.detailed_logs)
         
-        # Initialize database in writable app data directory
+        # Initialize database — use override path if provided (e.g. for isolated debug runs)
         from utils.helpers import get_app_data_directory
-        data_dir = get_app_data_directory()
-        db_path = data_dir / "inboxhunter.db"
+        if getattr(self.config.settings, 'db_path', ''):
+            db_path = Path(self.config.settings.db_path)
+        else:
+            data_dir = get_app_data_directory()
+            db_path = data_dir / "inboxhunter.db"
         self.db = DatabaseOperations(f"sqlite:///{db_path}")
         
         # Browser instance

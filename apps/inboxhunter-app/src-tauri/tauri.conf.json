@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "InboxHunter",
-    "version": "1.2.54"
+    "version": "1.2.55"
   },
   "tauri": {
     "updater": {
