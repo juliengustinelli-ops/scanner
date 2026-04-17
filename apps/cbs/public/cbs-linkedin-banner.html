@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1584px;
+    height: 396px;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+    background: #0f1623;
+  }
+  .banner {
+    width: 1584px;
+    height: 396px;
+    background: linear-gradient(120deg, #0f1623 0%, #1a2030 55%, #0d1a2e 100%);
+    position: relative;
+    display: flex;
+    align-items: center;
+    /* Push content right to avoid bottom-left profile picture overlap */
+    padding: 0 80px 0 340px;
+    overflow: hidden;
+  }
+  /* Dot grid */
+  .banner::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(rgba(255,255,255,0.035) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+  /* Blue glow top-center */
+  .glow-top {
+    position: absolute;
+    left: 50%;
+    top: -200px;
+    transform: translateX(-50%);
+    width: 700px;
+    height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(33,150,243,0.13) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  /* Blue glow right */
+  .glow-right {
+    position: absolute;
+    right: -100px;
+    top: -100px;
+    width: 500px;
+    height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(33,150,243,0.1) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 60px;
+  }
+  .left {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: #2196F3;
+    text-transform: uppercase;
+  }
+  .tagline {
+    font-size: 46px;
+    font-weight: 900;
+    color: #ffffff;
+    letter-spacing: -1.5px;
+    line-height: 1.08;
+  }
+  .tagline span {
+    color: #2196F3;
+  }
+  .sub-tagline {
+    font-size: 15px;
+    color: rgba(255,255,255,0.42);
+    font-weight: 400;
+    letter-spacing: 0.5px;
+  }
+  .right {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+  .pill {
+    background: rgba(33,150,243,0.1);
+    border: 1px solid rgba(33,150,243,0.22);
+    border-radius: 6px;
+    padding: 9px 22px;
+    color: rgba(255,255,255,0.7);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+  }
+  .pill b {
+    color: #2196F3;
+    font-weight: 700;
+    margin-right: 6px;
+  }
+  .website {
+    font-size: 12px;
+    color: rgba(255,255,255,0.2);
+    letter-spacing: 1.5px;
+    margin-top: 6px;
+    text-transform: lowercase;
+  }
+</style>
+</head>
+<body>
+<div class="banner">
+  <div class="glow-top"></div>
+  <div class="glow-right"></div>
+
+  <div class="content">
+    <div class="left">
+      <div class="label">One Integrated Partner · 12-Week Delivery</div>
+      <div class="tagline">
+        Enterprise AI &amp; Cloud<br/>
+        Transformation.<br/>
+        <span>Deployed in Weeks.</span>
+      </div>
+      <div class="sub-tagline">ServiceNow &nbsp;·&nbsp; Agentic AI &nbsp;·&nbsp; HR Transformation &nbsp;·&nbsp; Tech Staffing</div>
+    </div>
+
+    <div class="right">
+      <div class="pill"><b>→</b> ServiceNow · All Modules incl. Agentic AI</div>
+      <div class="pill"><b>→</b> Agentic AI · Agent Factory</div>
+      <div class="pill"><b>→</b> HR Transformation · Darwinbox · Workday · SAP</div>
+      <div class="pill"><b>→</b> Tech Staffing · US · India · Mexico</div>
+      <div class="website">cbsdigital.ai</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
